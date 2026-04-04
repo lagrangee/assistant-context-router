@@ -26,8 +26,18 @@ projects:
     owner: project-owner
     file: "delivery/sample-project/project.yaml"
     cadence: "ad-hoc"
+  - project_id: proj-openclaw-feishu-orchestrator
+    title: "OpenClaw Feishu Orchestrator"
+    type: governance
+    status: in_progress
+    owner: project-owner
+    file: "governance/openclaw-feishu-orchestrator/project.yaml"
+    cadence: "weekly"
 `,
   );
+
+  const governanceRoot = path.join(projectsRoot, "governance", "openclaw-feishu-orchestrator");
+  await mkdir(path.join(governanceRoot, "docs"), { recursive: true });
 
   await writeFile(
     path.join(deliveryRoot, "project.yaml"),
@@ -74,6 +84,18 @@ The prototype is ready for implementation.
 ## Notes
 
 Longer history should not be included in full.
+`,
+  );
+
+  await writeFile(
+    path.join(governanceRoot, "project.yaml"),
+    `kind: governance
+project_id: proj-openclaw-feishu-orchestrator
+title: "OpenClaw Feishu Orchestrator"
+owner: project-owner
+status: in_progress
+objective: "Route Feishu workflow traffic safely."
+next_action: "Validate project routing in OpenClaw TUI"
 `,
   );
 

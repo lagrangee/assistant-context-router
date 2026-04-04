@@ -1,6 +1,6 @@
 # Step 1 Completion Summary
 
-Assistant Context Router MVP Step 1 is complete.
+Assistant Context Router MVP Step 1 is complete and has now been validated against a live local OpenClaw runtime.
 
 Implemented:
 - project registry loading from `projects/index.yaml`
@@ -10,6 +10,8 @@ Implemented:
 - project context extraction from `project.yaml`, `README.md`, and `docs/recent-state.md`
 - `before_prompt_build` project context injection
 - route trace primitives and safe-fail handling for invalid project bindings
+- typo-tolerant and keyword-tolerant `/project` resolution
+- free-text filtering for `/projects`
 - Step 1 unit tests and plugin registration tests
 
 Step 1 stays within the agreed MVP boundary:
@@ -17,6 +19,40 @@ Step 1 stays within the agreed MVP boundary:
 - no full router framework
 - no protocol router Step 2
 - no context-engine upgrade
+
+## Live Validation Outcome
+
+The following Step 1 behaviors are now confirmed on a real local OpenClaw instance:
+
+- plugin loads successfully
+- plugin registers both `projects` and `project`
+- `/commands` shows plugin commands
+- `/projects` executes successfully in TUI
+- `/project <id>` executes successfully when routed through `before_dispatch`
+- `before_prompt_build` is registered and active
+
+Important behavior learned during live validation:
+
+- TUI sometimes prepends timestamp-style metadata like `[Sat ...]` before user text
+- `before_dispatch` now strips those wrappers before checking slash-like commands
+- native plugin command handlers still do not receive `sessionKey`
+- therefore the real Step 1 happy path for `/project <id>` is:
+  `TUI message -> before_dispatch -> session-owned state write -> before_prompt_build`
+
+## Current User Experience Behavior
+
+Current UX improvements now in place:
+
+- `/project` supports exact `project_id`
+- `/project` supports silent auto-correct when there is one strong match
+- `/project feishu orchestrator` style keyword queries can resolve directly
+- `/projects` supports free-text filtering such as `/projects feishu`
+
+Current known UX limitation:
+
+- typing `/` in the OpenClaw TUI does not automatically show plugin commands in its local slash autocomplete UI
+- this appears to be a TUI/runtime behavior, not an `assistant-context-router` registration failure
+- plugin commands are still visible through `/commands` and execute correctly when typed directly
 
 ## Real OpenClaw Contract Alignment Achieved
 
@@ -38,21 +74,21 @@ These alignments were based on OpenClaw plugin/runtime docs and are reflected in
 
 The following parts are still interim and should be treated as temporary integration assumptions:
 
-## 1. Command runtime context fields
+## 1. Native plugin command handler session context
 
-Current assumption:
-- command handler may receive `ctx.args`
-- command handler may receive `ctx.sessionKey`
-- or `ctx.session.sessionKey`
-- or `ctx.session.key`
+Current reality after live validation:
+- native `registerCommand(...)` handlers do receive `ctx.args`
+- native command handlers do **not** currently provide usable `sessionKey` in the tested runtime
+- this matches the local OpenClaw SDK types inspected during validation
 
 Status:
-- this is not yet verified against a local live OpenClaw command invocation
-- implementation is defensive and resolves any of the above if present
-- if none are present, `/project <id>` returns an explicit message explaining that a command bridge/runtime-provided session key is required
+- implementation is still defensive and checks `ctx.sessionKey`, `ctx.session.sessionKey`, and `ctx.session.key`
+- but the tested local runtime path did not provide those fields
+- `before_dispatch` **does** provide `sessionKey`, so Step 1 remains functional without redesign
 
 Implication:
-- Step 1 logic is correct, but final command runtime wiring may need a small field-name adjustment after local E2E validation
+- do not rely on native plugin command handlers alone for session-owned project switching
+- keep `before_dispatch` as the real session-aware command path unless OpenClaw later adds session context to plugin command handlers
 
 ## 2. Runtime state dir helper
 
@@ -75,7 +111,8 @@ Current assumption:
 
 Status:
 - plugin metadata is now shaped to be loadable
-- actual local loader behavior still needs one minimal plugin load test
+- local plugin load has been validated successfully
+- `configSchema` support and native plugin object export shape were both required for real load success
 
 ## 4. Session metadata API
 
@@ -107,6 +144,9 @@ Verify:
 Pass condition:
 - local plugin load succeeds and no registration-time error is emitted
 
+Observed status:
+- passed
+
 ### 2. `/projects` command validation
 
 Verify:
@@ -117,20 +157,26 @@ Verify:
 Pass condition:
 - live command output shows known projects including `proj-assistant-context-router` or `proj-openclaw-feishu-orchestrator`
 
+Observed status:
+- passed
+
 ### 3. `/project <id>` command validation
 
 Verify:
 - command can resolve `proj-openclaw-feishu-orchestrator` or another known project
-- command runtime actually supplies usable session context
-- session-owned store records the binding
+- session-aware path writes session-owned state
+- typo and keyword-tolerant resolution behave sanely
 
 Pass condition:
 - command responds with current project summary
 - subsequent prompt build in the same session can see the project binding
 
-If it fails:
-- inspect which command context fields are actually present
-- patch only the `src/index.ts` command wiring layer, not the core modules
+Observed status:
+- passed through `before_dispatch`
+
+Important note:
+- the native plugin command handler itself still lacks session context in the tested runtime
+- the working path is the slash-like `before_dispatch` bridge
 
 ### 4. `before_prompt_build` validation
 
@@ -142,6 +188,10 @@ Verify:
 Pass condition:
 - the assistant behaves as if the selected project is the current working boundary
 - prompt injection uses the bounded summary instead of full project docs
+
+Observed status:
+- hook registration is confirmed
+- full user-facing project-aware follow-up turn should still be rechecked once after any future runtime upgrade
 
 ### 5. Invalid binding degradation validation
 
@@ -156,6 +206,10 @@ Pass condition:
 - safe-fail trace is preserved
 - no repeated bad binding reuse occurs
 
+Observed status:
+- covered by automated tests
+- should be re-smoke-tested manually only if store/runtime semantics change
+
 ## Minimal Local Validation Sequence
 
 Recommended shortest path:
@@ -165,6 +219,14 @@ Recommended shortest path:
 4. send one normal follow-up message in the same session
 5. inspect whether project-aware context injection happened
 6. simulate one invalid binding case and confirm invalidation
+
+Actual live validation completed:
+1. plugin loaded successfully
+2. `/commands` showed plugin commands
+3. `/projects` executed successfully
+4. `/project` executed successfully after fixing TUI metadata-prefix stripping
+5. typo-driven failures led to auto-correct / suggestion hardening
+6. `/projects` filtering and keyword-based `/project` resolution were added for usability
 
 # Step 2 Entry Conditions
 
@@ -176,11 +238,18 @@ Required:
 - plugin can actually be loaded by the local OpenClaw instance
 - commands and hook register successfully in the real runtime
 
+Current status:
+- satisfied
+
 ## 2. Command session context is confirmed
 
 Required:
-- `/project <id>` can obtain session context from the live command runtime
-- if field names differ, they must be patched and revalidated first
+- there is at least one stable live runtime path that gives `/project <id>` session context
+- that path is accepted as the Step 1 production path
+
+Current status:
+- satisfied via `before_dispatch`
+- not satisfied via native plugin command handler alone
 
 ## 3. Prompt injection contract is confirmed
 
@@ -188,11 +257,18 @@ Required:
 - `before_prompt_build` returning `prependSystemContext` is observed to work in the live runtime
 - no hidden payload-shape mismatch remains
 
+Current status:
+- registration and return contract are aligned
+- one more manual smoke turn is still recommended after any runtime/plugin loader changes
+
 ## 4. Store path is confirmed acceptable
 
 Required:
 - runtime-owned data dir behavior is validated, or
 - fallback path is explicitly accepted for local MVP use
+
+Current status:
+- satisfied for local MVP use
 
 ## 5. Invalid binding degradation is confirmed
 
@@ -200,8 +276,15 @@ Required:
 - unresolved project bindings are invalidated in a live run
 - stale project context is not silently reused
 
+Current status:
+- satisfied in automated validation
+- low-risk manual recheck only if runtime semantics change
+
 ## 6. Step 2 scope remains narrow
 
 Required:
 - Step 2 only adds protocol routing MVP
 - Step 1 command/store/context architecture remains unchanged unless live validation exposes a real integration mismatch
+
+Current status:
+- still satisfied

@@ -41,3 +41,31 @@ test("command context session key resolver prefers explicit sessionKey fields", 
   assert.equal(resolveSessionKeyFromCommandContext({ args: "proj-sample" }), null);
   assert.match(buildMissingSessionKeyMessage("proj-sample"), /requires a runtime or command bridge/);
 });
+
+test("project command suggests nearest project id on typo", async () => {
+  const workspace = await makeTempProjectWorkspace();
+  const store = createSessionProjectStore({ dataDir: workspace.dataDir });
+
+  const result = await handleProjectCommand({
+    registryPath: workspace.registryPath,
+    projectId: "proj-sampel",
+    sessionKey: "agent:test:webchat:1",
+    store,
+  });
+
+  assert.match(result.content, /Current project: proj-sample/);
+});
+
+test("project command auto-resolves keyword query when there is one strong match", async () => {
+  const workspace = await makeTempProjectWorkspace();
+  const store = createSessionProjectStore({ dataDir: workspace.dataDir });
+
+  const result = await handleProjectCommand({
+    registryPath: workspace.registryPath,
+    projectId: "sample project",
+    sessionKey: "agent:test:webchat:2",
+    store,
+  });
+
+  assert.match(result.content, /Current project: proj-sample/);
+});

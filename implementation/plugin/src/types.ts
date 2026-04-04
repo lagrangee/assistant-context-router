@@ -105,10 +105,17 @@ export interface PromptBuildLikePayload {
 export interface CommandContextLike {
   senderId?: string;
   channel?: string;
+  channelId?: string;
   isAuthorizedSender?: boolean;
   args?: string;
   commandBody?: string;
   config?: unknown;
+  logger?: {
+    debug?: (message: string) => void;
+    info?: (message: string) => void;
+    warn?: (message: string) => void;
+    error?: (message: string) => void;
+  };
   sessionKey?: string;
   session?: {
     key?: string;

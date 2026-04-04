@@ -1,4 +1,4 @@
-import { getProjectById, loadProjectDefinition } from "../projects/registry.ts";
+import { findClosestProjects, getProjectById, loadProjectDefinition } from "../projects/registry.ts";
 import { createRouteTrace } from "../trace/route-trace.ts";
 import type { SessionProjectStore } from "../state/session-project-store.ts";
 import type { CommandContextLike, ProjectSwitchResult } from "../types.ts";
@@ -22,9 +22,18 @@ export async function handleProjectCommand(input: {
   store: SessionProjectStore;
   now?: () => Date;
 }): Promise<ProjectSwitchResult> {
-  const entry = await getProjectById(input.registryPath, input.projectId);
+  let entry = await getProjectById(input.registryPath, input.projectId);
   if (!entry) {
-    throw new Error(`Unknown project_id: ${input.projectId}`);
+    const suggestions = await findClosestProjects(input.registryPath, input.projectId);
+    if (suggestions.length === 1) {
+      entry = suggestions[0];
+    } else {
+      const suggestionText =
+        suggestions.length > 0
+          ? ` Did you mean: ${suggestions.map((candidate) => candidate.project_id).join(", ")}`
+          : "";
+      throw new Error(`Unknown project_id: ${input.projectId}.${suggestionText}`);
+    }
   }
 
   const definition = await loadProjectDefinition(entry);
