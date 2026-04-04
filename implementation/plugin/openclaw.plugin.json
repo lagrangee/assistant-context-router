@@ -1,0 +1,8 @@
+{
+  "id": "assistant-context-router",
+  "name": "Assistant Context Router",
+  "description": "Project-centric command and prompt-context plugin for OpenClaw",
+  "runtime": {
+    "entry": "./src/index.ts"
+  }
+}

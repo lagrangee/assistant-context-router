@@ -1,0 +1,36 @@
+kind: delivery
+project_id: proj-assistant-context-router
+title: "Assistant Context Router MVP"
+owner: project-owner
+status: draft
+objective: "交付一个基于 OpenClaw 扩展面的、project-centric 的 assistant routing policy + bridge 层 MVP，支持显式 project context switch、轻量 context loading、以及首批 protocol/project/workflow 路由。"
+constraints:
+  time: "先做 MVP，优先覆盖 webchat 主会话、Feishu dispatch 群、Feishu review 群"
+  risk: "避免深改 OpenClaw core；优先采用 config/skill/hook/plugin 方案；避免 context loading 爆炸与跨会话污染"
+deliverables:
+  - "project registry / project listing 入口（候选：/projects）"
+  - "显式 project context switch（候选：/project XXXX）"
+  - "current project state 的隔离模型与最小实现"
+  - "project-centric context loading policy（轻量索引优先、按需追加）"
+  - "首批 protocol/project/workflow route：webchat + Feishu dispatch/review"
+  - "route trace / route decision 可解释性"
+acceptance_criteria:
+  - "能稳定列出项目宇宙并进入某个 project context"
+  - "切换 project 后不会发生 context loading 爆炸"
+  - "current project state 不会在多 channel/多会话间发生明显污染"
+  - "dispatch/review 类消息能比当前更稳定地命中正确 project/workflow"
+  - "以 openclaw-feishu-orchestrator 作为首批客户时，主会话中的项目协作不再明显依赖整段历史回忆"
+  - "以 openclaw-feishu-orchestrator 作为首批客户时，dispatch/review 类消息能更稳定命中其相关 project/workflow，并在不确定时 safe-fail"
+  - "route decision 可记录、可解释、可保守失败"
+  - "实现建立在 OpenClaw 扩展面上，无需深改 core"
+milestones:
+  - name: "MVP 方案确认"
+    status: todo
+  - name: "Context switch + loading MVP"
+    status: todo
+  - name: "Protocol routing MVP"
+    status: todo
+  - name: "验收与回顾"
+    status: todo
+rollback_plan: "若 MVP 方向验证失败，保留 research 结论与设计文档，不修改现有核心 routing；所有实验性集成保持可禁用或可移除。"
+next_action: "基于 MVP scope 与工作拆解，先确认 `/projects`/`/project` 的实现面（skill vs plugin command）与 current project state 落点，再进入原型实现"
