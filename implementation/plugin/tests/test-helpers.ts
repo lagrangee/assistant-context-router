@@ -76,14 +76,38 @@ This part should not be included by default.
   );
 
   await writeFile(
-    path.join(deliveryRoot, "docs", "recent-state.md"),
-    `## Current State
+    path.join(deliveryRoot, "STATUS.md"),
+    `# STATUS
 
-The prototype is ready for implementation.
+## TL;DR（一句话）
+The sample project is in delivery and ready for implementation.
 
-## Notes
+## 当前阶段（你现在在哪）
+- Step 1 baseline is complete
+- Step 1.5 hall-doc recovery is next
 
-Longer history should not be included in full.
+## 下一步（从这里继续推进主线）
+- Implement the acceptance fix and verify prompt recovery
+`,
+  );
+
+  await writeFile(
+    path.join(deliveryRoot, "RESUME.md"),
+    `# RESUME
+
+## Current phase
+Step 1.5 implementation
+
+## Current mainline
+- Move the loader to hall-doc-first recovery
+- Keep context bounded and explicit
+
+## Immediate next actions
+1. Update the project context loader
+2. Update tests
+
+## Guardrail
+- Do not expand to protocol routing
 `,
   );
 
@@ -96,6 +120,35 @@ owner: project-owner
 status: in_progress
 objective: "Route Feishu workflow traffic safely."
 next_action: "Validate project routing in OpenClaw TUI"
+`,
+  );
+
+  await writeFile(
+    path.join(governanceRoot, "README.md"),
+    `# OpenClaw Feishu Orchestrator
+
+This project defines the protocol and visibility surface for Feishu workflow traffic.
+`,
+  );
+
+  await writeFile(
+    path.join(governanceRoot, "STATUS.md"),
+    `# STATUS
+
+## TL;DR（一句话）
+Protocol routing validation is the current mainline.
+`,
+  );
+
+  await writeFile(
+    path.join(governanceRoot, "RESUME.md"),
+    `# RESUME
+
+## Current phase
+Step 2 preparation
+
+## Current mainline
+- Validate orchestrator-facing routing
 `,
   );
 

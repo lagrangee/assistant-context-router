@@ -141,6 +141,10 @@ export function createSessionProjectStore(options?: {
             patch.last_route_trace !== undefined
               ? patch.last_route_trace
               : (existing?.last_route_trace ?? null),
+          pending_save_draft:
+            patch.pending_save_draft !== undefined
+              ? patch.pending_save_draft
+              : (existing?.pending_save_draft ?? null),
         };
 
         state.sessions[sessionKey] = nextState;
@@ -184,6 +188,10 @@ export function createSessionProjectStore(options?: {
             patch?.last_route_trace !== undefined
               ? patch.last_route_trace
               : (existing?.last_route_trace ?? null),
+          pending_save_draft:
+            patch?.pending_save_draft !== undefined
+              ? patch.pending_save_draft
+              : null,
         };
 
         state.sessions[sessionKey] = nextState;

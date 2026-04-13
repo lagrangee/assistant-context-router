@@ -13,8 +13,9 @@ test("project context loader builds a bounded summary", async () => {
   const context = await loadProjectContext({ entry });
 
   assert.ok(context.rendered.includes("[registry]"));
-  assert.ok(context.rendered.includes("[project.yaml]"));
+  assert.ok(context.rendered.includes("[STATUS.md]"));
   assert.ok(context.rendered.includes("[README.md]"));
-  assert.ok(context.rendered.includes("[docs/recent-state.md]"));
+  assert.ok(context.rendered.includes("[RESUME.md]"));
+  assert.ok(context.rendered.includes("[project.yaml]"));
   assert.ok(context.totalChars <= 2600);
 });

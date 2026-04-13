@@ -46,6 +46,16 @@ export interface RouteTrace {
   reason: string;
 }
 
+export interface PendingSaveDraft {
+  created_at: string;
+  project_id: string;
+  updated_files: string[];
+  resume_draft: string;
+  status_draft: string | null;
+  summary_for_chat: string;
+  source_notes?: string[];
+}
+
 export interface SessionProjectState {
   current_project_id: string | null;
   selected_at: string;
@@ -54,6 +64,7 @@ export interface SessionProjectState {
   updated_at: string;
   expires_at: string;
   last_route_trace: RouteTrace | null;
+  pending_save_draft: PendingSaveDraft | null;
 }
 
 export interface SessionProjectStatePatch {
@@ -64,6 +75,7 @@ export interface SessionProjectStatePatch {
   updated_at?: string;
   expires_at?: string;
   last_route_trace?: RouteTrace | null;
+  pending_save_draft?: PendingSaveDraft | null;
 }
 
 export interface ProjectContextPayload {
@@ -87,6 +99,13 @@ export interface ProjectSwitchResult {
   content: string;
   entry: ProjectRegistryEntry;
   state: SessionProjectState;
+}
+
+export interface SaveCommandResult {
+  content: string;
+  updatedFiles: string[];
+  dryRun?: boolean;
+  needsConfirmation?: boolean;
 }
 
 export interface PromptBuildLikePayload {

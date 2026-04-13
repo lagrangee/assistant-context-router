@@ -28,6 +28,8 @@ test("before_prompt_build injects project context into system prompt", async () 
 
   assert.match(String(result.prependSystemContext), /Assistant Context Router project context/);
   assert.match(String(result.prependSystemContext), /proj-sample/);
+  assert.match(String(result.prependSystemContext), /Step 1\.5 hall-doc recovery is next/);
+  assert.match(String(result.prependSystemContext), /Update the project context loader/);
 });
 
 test("before_prompt_build safe-fails when stored project is unresolved", async () => {

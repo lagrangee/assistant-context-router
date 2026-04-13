@@ -61,6 +61,29 @@ dispatch/review 结构化消息尽量携带：
 
 ---
 
+## 4.1 Step 2 中必须区分的两类 project
+在 Step 2 的 routing policy 中，必须显式区分以下两类 project，不允许混用：
+
+### protocol owner project
+拥有 protocol、contract、runtime 与治理职责的项目。
+
+对于当前首批试点，通常是：
+- `proj-openclaw-feishu-orchestrator`
+
+### business target project
+具体任务、记录或业务动作真正归属的项目。
+
+它可能：
+- 与 protocol owner project 相同
+- 也可能不同（例如某条 dispatch 消息由 orchestrator 协议承载，但目标工作属于其他业务项目）
+
+### 约束
+- 已知 protocol channel / message family 最多只能帮助 router 稳定命中 `protocol owner project`
+- 若没有明确的 project anchor，不应假定已 resolve `business target project`
+- 当后续动作必须依赖 `business target project` 才能继续时，若其 unresolved，则必须 safe-fail
+
+---
+
 ## 5. MVP 验收中与 orchestrator 相关的明确条件
 MVP 至少应满足：
 1. 能在主会话中显式切换到 `openclaw-feishu-orchestrator` project context

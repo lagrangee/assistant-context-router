@@ -62,9 +62,10 @@
                     ┌─────────────────────────────┐
                     │ Project Context Loader      │
                     │ reads:                      │
-                    │ - project.yaml              │
-                    │ - README.md (optional)      │
-                    │ - docs/recent-state.md opt  │
+                    │ - STATUS.md                 │
+                    │ - README.md                 │
+                    │ - RESUME.md                 │
+                    │ - project.yaml (supplement) │
                     └──────────────┬──────────────┘
                                    │ lightweight context payload
                                    ▼
@@ -195,11 +196,12 @@ command 是入口，不是核心引擎。
 ### 默认读取层
 #### Layer 1（必载）
 - registry entry
-- `project.yaml`
+- `STATUS.md`
+- `README.md`
+- `RESUME.md`
 
 #### Layer 2（可选）
-- `README.md`
-- `docs/recent-state.md`
+- `project.yaml`（identity metadata 补充）
 
 #### Layer 3（按需）
 - notes

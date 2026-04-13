@@ -19,7 +19,7 @@
 10. `plan/mvp-scope.md`
 11. `plan/work-breakdown.md`
 12. `plan/interface-decision.md`
-13. `plan/orchestrator-integration-boundary.md`
+13. `plan/active/orchestrator-integration-boundary.md`
 
 ## 实施提醒
 - 不要从零重新发明 research 结论

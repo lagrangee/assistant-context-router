@@ -1,5 +1,20 @@
 # Assistant Context Router MVP — Implementation Decision v1
 
+> Note
+>
+> 本文件主要反映 **Step 1 baseline** 的实现决策与当时的上下文装配模型。
+> 其中部分结论，尤其是默认 project context loading，已经被后续文档覆盖。
+>
+> 当前应优先以以下文档为准：
+> - `STATUS.md`
+> - `RESUME.md`
+> - `plan/architecture/system-architecture-v1.md`
+> - `plan/active/step2-project-context-definition.md`
+>
+> 特别说明：
+> - 本文件中关于 `docs/recent-state.md` 的默认 context 结论，已不再代表当前推荐模型
+> - Step 1.5 的目标正是将默认恢复入口切换到 hall docs（`STATUS.md` / `README.md` / `RESUME.md`）
+
 ## 目的
 把 `assistant-context-router` 从“已完成 MVP 定义 + 已完成 feasibility check”推进到一个**可交给 Codex 实现**的决策状态。
 
@@ -35,7 +50,7 @@
 - 默认只注入：
   - project registry entry
   - `project.yaml`
-  - 可选 `README.md` / `docs/recent-state.md`
+  - 可选 `README.md`
 - 不做全量项目文档注入
 
 ### D5. Route policy
@@ -171,7 +186,7 @@
 
 ### Layer 2（有则追加）
 - `README.md`
-- `docs/recent-state.md`
+- 当前推荐模型已不再将 `docs/recent-state.md` 视为默认加载层
 
 ### Layer 3（按需追加）
 - 研究文档
@@ -323,3 +338,45 @@ MVP 第一版不做：
 
 ## 8. 给 Codex 的一句话指令
 > 不要重新发明一个 router 平台。请基于 OpenClaw 已确认存在的 plugin / hook / context 机制，先做一个 session-aware、project-centric 的最小可跑 MVP：command 是入口，context injection 是核心，route trace 与 safe-fail 是必须项。
+
+---
+
+## 9. Step 1 验收后的现实修正
+
+经过本地 live validation，以下现实约束已被确认，并作为后续阶段的正式前提：
+
+1. `assistant-context-router` 的 Step 1 已完成，并已作为本地 MVP baseline 验收通过。
+2. 当前 tested runtime 下，session-aware 的 `/project <id>` 真实工作路径为：
+   `TUI message -> before_dispatch -> session-owned state write -> before_prompt_build`
+3. 当前 tested runtime 下，native `registerCommand(...)` handler 不能稳定拿到可用 `sessionKey`。
+4. 因此，在 OpenClaw runtime 明确补足 command handler session context 之前，`before_dispatch` 应被视为当前正式的 session-aware command bridge。
+5. TUI 的 slash autocomplete 不能作为 plugin command 可用性的可靠验收信号；应以 `/commands` 与实际执行结果为准。
+
+这些修正不会推翻前述决策，而是把 Step 1 从“设计态”推进到了“经过真实运行时约束修正后的可执行基线”。
+
+## 10. Step 2 layering decision
+
+Step 2 的定位已明确为：
+
+> 在 Step 1 已确认的 command/store/context baseline 之上，叠加 protocol/project/workflow routing policy，先完成验证与策略收口，再决定是否进入实现。
+
+### Step 2 不是什么
+- 不是 architecture replacement
+- 不是 generic router framework
+- 不是 context-engine rewrite
+- 不是 progress writeback 阶段
+
+### Step 2 是什么
+- minimal context adequacy validation
+- protocol/project/workflow routing policy layering
+- route trace schema 的最小扩展
+- unresolved 场景下的 safe-fail 规则收紧
+
+### Step 2 继续遵守的原则
+1. layering over replacement
+2. bounded by default
+3. session-owned first
+4. safe-fail before convenience
+5. protocol-specific before generic
+
+若后续 Step 2 需要引入更多默认 context bucket、progress writeback 或更强 runtime 装配能力，必须先通过单独策略评审，不得在 Step 2 内隐式滑入。 

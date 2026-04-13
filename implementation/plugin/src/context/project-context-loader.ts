@@ -9,9 +9,10 @@ import type {
 } from "../types.ts";
 
 const TOTAL_CHAR_BUDGET = 2600;
-const PROJECT_YAML_CAP = 1200;
-const README_CAP = 800;
-const RECENT_STATE_CAP = 600;
+const STATUS_CAP = 900;
+const README_CAP = 700;
+const RESUME_CAP = 700;
+const PROJECT_YAML_CAP = 500;
 
 function normalizeText(input: string): string {
   return input.replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").trim();
@@ -124,27 +125,67 @@ function extractReadmeSummary(readme: string): string | null {
   return buffer.join("\n").trim() || null;
 }
 
-function extractRecentStateSummary(recentState: string): string | null {
-  const lines = normalizeText(recentState).split("\n");
+function extractNamedSections(markdown: string, headings: string[]): string | null {
+  const lines = normalizeText(markdown).split("\n");
+  const wanted = new Set(headings.map((heading) => heading.toLowerCase()));
   const sections: string[] = [];
-  let secondHeadingSeen = false;
+  let currentHeading: string | null = null;
+  let buffer: string[] = [];
+
+  const flush = (): void => {
+    if (!currentHeading || buffer.length === 0) {
+      buffer = [];
+      return;
+    }
+    sections.push(`## ${currentHeading}`);
+    sections.push(...buffer);
+    sections.push("");
+    buffer = [];
+  };
 
   for (const line of lines) {
     if (line.startsWith("## ")) {
-      if (secondHeadingSeen) {
-        break;
-      }
-      secondHeadingSeen = true;
+      flush();
+      const heading = line.slice(3).trim();
+      currentHeading = wanted.has(heading.toLowerCase()) ? heading : null;
+      continue;
     }
-    sections.push(line);
+
+    if (currentHeading) {
+      buffer.push(line);
+    }
   }
 
-  const candidate = sections.join("\n").trim();
-  if (candidate) {
-    return candidate;
+  flush();
+
+  return sections.join("\n").trim() || null;
+}
+
+function extractStatusSummary(status: string): string | null {
+  const extracted = extractNamedSections(status, [
+    "TL;DR（一句话）",
+    "当前阶段（你现在在哪）",
+    "下一步（从这里继续推进主线）",
+  ]);
+  if (extracted) {
+    return extracted;
   }
 
-  return lines.slice(0, 4).join("\n").trim() || null;
+  return normalizeText(status).split("\n").slice(0, 14).join("\n").trim() || null;
+}
+
+function extractResumeSummary(resume: string): string | null {
+  const extracted = extractNamedSections(resume, [
+    "Current phase",
+    "Current mainline",
+    "Immediate next actions",
+    "Guardrail",
+  ]);
+  if (extracted) {
+    return extracted;
+  }
+
+  return normalizeText(resume).split("\n").slice(0, 18).join("\n").trim() || null;
 }
 
 export async function loadProjectContext(input: {
@@ -166,7 +207,21 @@ export async function loadProjectContext(input: {
     ]
       .filter(Boolean)
       .join("\n"),
-    300,
+    250,
+  );
+
+  const status = await readOptionalFile(path.join(input.entry.project_root, "STATUS.md"));
+  pushSection(sections, "STATUS.md", status ? extractStatusSummary(status) : null, STATUS_CAP);
+
+  const readme = await readOptionalFile(path.join(input.entry.project_root, "README.md"));
+  pushSection(sections, "README.md", readme ? extractReadmeSummary(readme) : null, README_CAP);
+
+  const resume = await readOptionalFile(path.join(input.entry.project_root, "RESUME.md"));
+  pushSection(
+    sections,
+    "RESUME.md",
+    resume ? extractResumeSummary(resume) : null,
+    RESUME_CAP,
   );
 
   pushSection(
@@ -174,19 +229,6 @@ export async function loadProjectContext(input: {
     "project.yaml",
     summarizeProjectDefinition(definition),
     PROJECT_YAML_CAP,
-  );
-
-  const readme = await readOptionalFile(path.join(input.entry.project_root, "README.md"));
-  pushSection(sections, "README.md", readme ? extractReadmeSummary(readme) : null, README_CAP);
-
-  const recentState = await readOptionalFile(
-    path.join(input.entry.project_root, "docs/recent-state.md"),
-  );
-  pushSection(
-    sections,
-    "docs/recent-state.md",
-    recentState ? extractRecentStateSummary(recentState) : null,
-    RECENT_STATE_CAP,
   );
 
   let totalChars = sections.reduce((sum, section) => sum + section.chars, 0);

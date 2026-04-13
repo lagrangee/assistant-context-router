@@ -24,7 +24,7 @@ test("plugin registers commands and hooks", async () => {
     },
   });
 
-  assert.deepEqual(commands.sort(), ["project", "projects"]);
+  assert.deepEqual(commands.sort(), ["project", "projects", "save"]);
   assert.deepEqual(hooks.sort(), ["before_dispatch", "before_prompt_build"]);
 });
 
@@ -44,7 +44,7 @@ test("default plugin export does not require config.registryPath", async () => {
     on() {},
   });
 
-  assert.equal(registered, 2);
+  assert.equal(registered, 3);
 });
 
 test("before_dispatch handles slash-like /projects input from nested message payload", async () => {

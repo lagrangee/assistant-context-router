@@ -69,3 +69,32 @@ test("project command auto-resolves keyword query when there is one strong match
 
   assert.match(result.content, /Current project: proj-sample/);
 });
+
+test("project command clears pending save draft when switching projects", async () => {
+  const workspace = await makeTempProjectWorkspace();
+  const store = createSessionProjectStore({ dataDir: workspace.dataDir });
+
+  await store.set("agent:test:webchat:3", {
+    current_project_id: "proj-openclaw-feishu-orchestrator",
+    selected_via: "manual",
+    pending_save_draft: {
+      created_at: "2026-04-13T00:00:00.000Z",
+      project_id: "proj-openclaw-feishu-orchestrator",
+      updated_files: ["/tmp/RESUME.md"],
+      resume_draft: "# RESUME",
+      status_draft: "# STATUS",
+      summary_for_chat: "pending",
+    },
+  });
+
+  await handleProjectCommand({
+    registryPath: workspace.registryPath,
+    projectId: "proj-sample",
+    sessionKey: "agent:test:webchat:3",
+    store,
+  });
+
+  const stored = await store.get("agent:test:webchat:3");
+  assert.equal(stored?.current_project_id, "proj-sample");
+  assert.equal(stored?.pending_save_draft, null);
+});

@@ -92,6 +92,7 @@ test("metadata adapter boundary is honored when provided", async () => {
               updated_at: "2026-04-04T00:00:00.000Z",
               expires_at: "2026-04-11T00:00:00.000Z",
               last_route_trace: null,
+              pending_save_draft: null,
             }
           : null;
       },
@@ -105,6 +106,7 @@ test("metadata adapter boundary is honored when provided", async () => {
           updated_at: patch.updated_at ?? "2026-04-04T00:00:00.000Z",
           expires_at: patch.expires_at ?? "2026-04-11T00:00:00.000Z",
           last_route_trace: patch.last_route_trace ?? null,
+          pending_save_draft: patch.pending_save_draft ?? null,
         };
       },
       async clear() {

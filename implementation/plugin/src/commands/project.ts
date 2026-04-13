@@ -54,6 +54,7 @@ export async function handleProjectCommand(input: {
     current_workflow: null,
     updated_at: timestamp,
     last_route_trace: trace,
+    pending_save_draft: null,
   });
 
   const content = [

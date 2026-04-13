@@ -1,5 +1,6 @@
 import { buildMissingSessionKeyMessage, handleProjectCommand, resolveSessionKeyFromCommandContext } from "./commands/project.ts";
 import { handleProjectsCommand } from "./commands/projects.ts";
+import { handleSaveCommand } from "./commands/save.ts";
 import { createBeforePromptBuildHook } from "./hooks/before-prompt-build.ts";
 import { createSessionProjectStore } from "./state/session-project-store.ts";
 import type { CommandContextLike } from "./types.ts";
@@ -47,6 +48,19 @@ function parseProjectId(rawArgs: string | undefined): string {
 function parseProjectsQuery(rawArgs: string | undefined): string | undefined {
   const query = (rawArgs ?? "").trim();
   return query || undefined;
+}
+
+function parseSaveArgs(rawArgs: string | undefined): { mode: "draft" | "apply" | "cancel" | "dry-run" } {
+  const text = (rawArgs ?? "").trim();
+  if (text === "apply") {
+    return { mode: "apply" };
+  }
+  if (text === "cancel") {
+    return { mode: "cancel" };
+  }
+  return {
+    mode: text === "--dry-run" || text === "-n" ? "dry-run" : "draft",
+  };
 }
 
 function debugLog(api: PluginApiLike, message: string): void {
@@ -178,6 +192,23 @@ async function handleSlashLikeInput(input: {
     return result.content;
   }
 
+  if (text === "/save" || text.startsWith("/save ")) {
+    if (!input.sessionKey) {
+      return buildMissingSessionKeyMessage();
+    }
+
+    const args = text.slice("/save".length).trim();
+    const parsed = parseSaveArgs(args);
+
+    const result = await handleSaveCommand({
+      sessionKey: input.sessionKey,
+      registryPath: input.registryPath,
+      store: input.store,
+      mode: parsed.mode,
+    });
+    return result.content;
+  }
+
   return null;
 }
 
@@ -247,6 +278,29 @@ export function createAssistantContextRouterPlugin(input: {
         },
       });
 
+      api.registerCommand?.({
+        name: "save",
+        description: "Save the current project state into project docs",
+        acceptsArgs: true,
+        requireAuth: true,
+        handler: async (ctx) => {
+          const sessionKey = resolveSessionKeyFromCommandContext(ctx as never);
+          if (!sessionKey) {
+            return { text: buildMissingSessionKeyMessage() };
+          }
+
+          const parsed = parseSaveArgs(ctx.args);
+
+          const result = await handleSaveCommand({
+            sessionKey,
+            registryPath: input.registryPath,
+            store,
+            mode: parsed.mode,
+          });
+          return { text: result.content };
+        },
+      });
+
       api.on?.(
         "before_dispatch",
         async (event, ctx) => {
@@ -291,7 +345,7 @@ export function createAssistantContextRouterPlugin(input: {
           },
         { priority: 10 },
       );
-      debugLog(api, "register complete commands=projects,project hooks=before_dispatch,before_prompt_build");
+      debugLog(api, "register complete commands=projects,project,save hooks=before_dispatch,before_prompt_build");
     },
   };
 }
