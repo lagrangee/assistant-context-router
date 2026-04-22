@@ -1,121 +1,171 @@
 # Step 2 Routing Matrix
 
 ## Purpose
-定义 Step 2 的 routing validation matrix，用于验证 project / protocol / workflow 分层是否足够稳、是否可解释、是否能够 safe-fail。
+定义 Step 2 的 routing validation matrix，用于验证：
+- 外部消息是否能先进入正确的处理面
+- `main session` / `project session` / `internal service` 的边界是否清楚
+- unresolved 场景是否能够 safe-fail
+- route trace 是否足够 explainable
 
 本文件不负责定义 default project context；那部分由 `step2-project-context-definition.md` 负责。
 
 ## Position in Step 2
 当前顺序应为：
-1. `step2-project-context-definition.md`
-2. `step2-routing-matrix.md`
-3. `step2-context-validation.md` 的执行
-4. 其他后续实现设计
+1. `step2-strategy-note.md`
+2. `step2-project-context-definition.md`
+3. `step2-routing-matrix.md`
+4. `step2-context-validation.md`
+5. 其他后续实现设计
 
 ## Routing goal
-Step 2 routing 要回答的是：
-1. assistant 是否能进入正确的 project boundary
-2. protocol owner / business target / workflow family 是否能被正确分层
-3. unresolved 场景是否能够 safe-fail
-4. route trace 是否足够 explainable
+Step 2 routing 现在要回答的是：
+1. Human 私聊消息是否能稳定进入 `main session`
+2. `/project` 后主会话是否保持正确 project boundary，但不切 session
+3. automation / agent / service 事件是否进入正确的 `project session` 或 `internal service`
+4. 哪些事项应升级回 `main session`
+5. unresolved 场景是否能够 safe-fail
 
-当前这份 matrix 首先服务于 `proj-openclaw-feishu-orchestrator` 这类真实客户协作场景，不提前扩展为完整 execution-mode / collaboration-mode router。
+当前这份 matrix 首先服务于 `proj-openclaw-feishu-orchestrator` 这类真实客户协作场景，不提前扩展为完整 orchestration engine。
 
 ## Required routing semantics
 Step 2 routing 评审中必须显式区分：
 
-### 1. Protocol owner project
-谁拥有这套 protocol / runtime / contract
+### 1. Main session
+Human 与 `coordinator-agent` 的唯一 human-facing 默认工作入口。
 
-### 2. Business target project
-这条任务真正针对哪个业务项目
+### 2. Project session
+per-project 的 system-facing event lane，主要给 automation / agents / services 使用。
 
-### 3. Workflow family
-这条任务属于哪类工作流（例如 dispatch / review / future family）
+### 3. Internal service
+接收结构化 action 的非对话执行目标。
+
+### 4. Escalation to main session
+仅在需要 Human 决策、review、blocked 或高信号完成时发生。
 
 规则：
-- 不能把 owner project 识别成功，误当作 business target 已解析成功
-- 不能在 business target unresolved 时继续做高风险动作
+- Human 私聊消息默认进入 `main session`
+- `/project` 只切 `main session` 的焦点，不切 session identity
+- automation 不默认进入 `main session`
+- unresolved route 不应伪造 project 或 target
 
 ## Minimum routing order
 建议最小 routing 顺序为：
-1. explicit `/project <id>`
-2. explicit project anchor in message / payload
-3. known session binding
-4. protocol-family-only signal
-5. unresolved -> safe-fail
+1. channel ingress normalization
+2. explicit `/project <id>` focus switch
+3. known canonical `main session`
+4. explicit `resolved_project_id` or `project_ref`
+5. structured automation -> `service` or `project session`
+6. unresolved -> safe-fail or explicit fallback
 
 ## Minimum matrix
 | Area | Scenario | Expected | Fail means |
 | --- | --- | --- | --- |
-| Routing | explicit switch | enters correct project boundary | project switch not authoritative |
-| Routing | anchored request | resolves business target project | anchor resolution not enough |
-| Routing | bound session continuation | keeps current project | binding or state is unstable |
-| Routing | owner-only signal | resolves owner + workflow only | semantics mixed or over-routed |
-| Safe-fail | unresolved target | asks / halts safely | high-risk misrouting |
+| Routing | human DM | enters `main session` | human-facing entry is unstable |
+| Routing | explicit `/project` | changes focus only, keeps session identity | project switch wrongly acts like session switch |
+| Routing | project continuation in main session | keeps current project boundary | focus state is unstable or stale |
+| Routing | structured automation | routes to `project session` or `service` | automation leaks into main session |
+| Routing | escalation | only high-signal items reach `main session` | main session is polluted by project noise |
+| Safe-fail | unresolved project/action | asks / halts safely with trace | high-risk misrouting |
 | Trace | every route | route evidence is explainable | routing is not debuggable |
 
 ## Route trace requirements
 每次 routing decision 应尽量能够解释：
-- 为什么进入这个 project
-- 是否只识别到了 owner project
-- business target 是否已解析
-- workflow family 是什么
+- 为什么进入 `main session` / `project session` / `service`
+- project 是否 unresolved
+- 是否触发了 escalation
 - 是基于哪类证据完成 route
 
 建议 trace 字段至少包括：
-- `protocol_family`
-- `protocol_owner_project`
-- `business_target_project`
-- `workflow_family`
+- `source_type`
+- `channel_type`
+- `project_ref`
+- `resolved_project_id`
+- `target_kind`
+- `target_id`
 - `route_evidence`
-- `safe_fail_reason`（当 unresolved 时）
+- `safe_fail_reason`
+- `escalation_reason`（当升级到主会话时）
 
 ## Scenario classes
-### 1. Explicit project switch
-示例：
-- 用户先 `/project foo`
-- 后续任务默认应留在该 project 内
 
-### 2. Anchored task
+### 1. Human DM default
 示例：
-- 消息中包含明确 project anchor
-- routing 应优先解析到 business target project
-
-### 3. Session-bound continuation
-示例：
-- 没有新 anchor，但 session 已绑定 project
-- routing 应保持 project continuity
-
-### 4. Protocol-family-only signal
-示例：
-- 来自已知 protocol channel 或 workflow family
-- 但没有明确 business target
+- project owner 在 TUI / 微信 / 飞书私聊里直接发消息给 `coordinator-agent`
 
 期待：
-- 最多只解析到 owner project + workflow family
-- 不越权推断 business target
+- 默认进入 canonical `main session`
+- 不因物理 channel 不同而分裂成人类主会话
 
-### 5. Unresolved / ambiguous target
+### 2. Explicit project focus switch
 示例：
-- 多个候选项目
-- 信息不足
-- protocol owner 与 business target 可混淆
+- Human 在 `main session` 中执行 `/project foo`
+
+期待：
+- 只更新 `current_project_id`
+- 不切换到 `project session`
+- 后续在主会话中保持 `foo` 的项目边界
+
+### 3. Main-session project continuation
+示例：
+- `/project foo` 后继续讨论下一步、约束、实现判断
+
+期待：
+- 推理持续留在 `foo`
+- 不因为没有切 session 而丢失项目边界
+
+### 4. Structured automation event
+示例：
+- Feishu / orchestrator 自动化消息带有结构化 action 与参数
+
+期待：
+- 路由到 `project session` 或 `service`
+- 不默认进入 `main session`
+
+### 5. Service-first automation
+示例：
+- 自动化消息足够结构化，且 action 可直接命中 internal service
+
+期待：
+- 可不经一轮 `coordinator-agent` ingress 判断而直达 service
+- service 结果写入 `project session` 或回原 channel
+- 只有异常或需要解释时才升级
+
+### 6. Escalation to main session
+示例：
+- blocked
+- need review
+- need decision
+- high-signal completion
+
+期待：
+- 这些事项才进入 `main session`
+- 普通中间进度不应上浮
+
+### 7. Unresolved / ambiguous route
+示例：
+- project 未解析
+- action_name 未解析
+- reply target 不清楚
 
 期待：
 - safe-fail
 - 请求更多信息或停止高风险动作
+- 保留 trace
 
 ## Acceptance rule
+
 ### Routing passes when
-- project boundary 解析稳定
-- owner / target / workflow 不混用
+- Human 私聊稳定进入 `main session`
+- `/project` 只切焦点，不切 session identity
+- automation 默认进入 `project session` 或 `service`
+- `main session` 不被普通项目事件污染
 - unresolved 时能保守失败
-- trace 对人类与 agent 都可解释
+- trace 对 Human 与 agent 都可解释
 
 ### Routing fails when
-- 错 project 继续执行
-- owner project 被当作 business target
+- Human 消息被错误送进 `project session`
+- `/project` 被实现成会话跳转
+- automation 默认灌入 `main session`
 - unresolved 时仍贸然继续
 - 无法解释 route 为什么成立
 
@@ -124,7 +174,7 @@ routing matrix 不负责解决“context 不够”的问题。
 
 如果 routing 失败，应先判断失败类型：
 1. 是 route 错了
-2. 还是 route 对了，但 default context 不足
+2. 还是 route 对了，但 `/project` 后主会话内的 context 不足
 
 不能把所有失败都归因为 context。
 

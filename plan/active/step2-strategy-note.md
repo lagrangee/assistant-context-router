@@ -1,233 +1,284 @@
 # Step 2 Strategy Note
 
 ## 目标
-在 Step 1 已确认的 bounded、session-owned、document-driven baseline 之上，定义 Step 2 的最小策略范围与验证方法；先完成策略评审，不直接进入实现。
+在 Step 1 与 Step 1.5 已跑通的 `project switch + hall-doc recovery + conversational /project --save` 基线上，重新定义 Step 2 的最小交付边界。
+
+Step 2 不再以旧的 `protocol/project/workflow layering` 语义讨论为中心，而改为面向真实使用方式的最小协作链路：
+
+1. channel ingress
+2. normalized envelope
+3. route to `main session` / `project session` / `internal service`
+4. `coordinator-agent` 在主会话中做编排、解释、升级与摘要
+
+## Confirmed baseline from Step 1 / 1.5
+- `/project --all` 已可用
+- `/project <id>` 已可用
+- `before_dispatch` 已承载当前 session-aware command path
+- `before_prompt_build` 已承载 hall-doc-first context injection
+- `/project --save` 已切到 conversational draft -> confirm -> apply
+- Step 1.5 continuity baseline 已完成并通过一轮真实工作流验证
 
 ## Step 2 问题定义
-Step 2 需要回答的不是“再做一个更大的 router”，而是：
+Step 2 现在要回答的不是“再做一个更大的 project/workflow router”，而是：
 
-1. Step 1 的 minimal project context 是否已足够支撑真实多轮协作？
-2. protocol/project/workflow routing 应如何在现有架构上分层叠加？
-3. 在以 `proj-openclaw-feishu-orchestrator` 为首批客户的前提下，哪些能力是当前交付真正需要的？
-4. 哪些能力应明确留在 Step 2 之外，避免范围失控？
+1. 人类与 `coordinator-agent` 的默认工作入口应如何保持单一、连续、低噪音？
+2. automation / agents / services 的项目执行面应如何与人类主对话面分离？
+3. 不同 channel 进入系统后，如何先被标准化，再被最小成本地分发到正确处理面？
+4. 哪些结果应留在项目工作面，哪些才应升级回主对话面？
 
-## Confirmed baseline from Step 1
-- `/projects` 已可用
-- `/project <id>` 已可用
-- 当前 tested runtime 下，session-aware 路径依赖 `before_dispatch`
-- `before_prompt_build` 已可用于 project context 注入
-- Step 1 已被本地 live validation 验收通过
+## Current recommendation
 
-## Step 2 设计原则
-1. layering over replacement
-   - Step 2 只能在 Step 1 上叠加 routing policy，不重写 Step 1 的 command/store/context 基线。
-2. bounded by default
-   - 新增能力必须继续遵守 bounded context，不能以“更聪明”为名放大默认上下文。
-3. project-state-anchored first
-   - 当前 project / workflow / trace 应优先锚定在项目文件对象与 project-scoped state 上，而不是仅依赖 session 内历史。
-   - Step 2 不引入 workspace-global memory redesign，但也不将 session-owned state 视为唯一主状态源。
-4. safe-fail before convenience
-   - unresolved 或冲突场景必须优先保守失败，不能为了“自动化体验”牺牲正确性。
-5. protocol-specific before generic
-   - 先覆盖一个已知 protocol family，不做大而全 router framework。
+### 1. Main session is the only human-facing default entry
+Human 与 `coordinator-agent` 的默认工作入口应是单一 `main session`。
 
-## Step 2 scope（建议）
+当前共识：
+- TUI / 微信 / 飞书私聊应归并到同一个连续主会话
+- 这是上游 OpenClaw / session adapter 的能力
+- Step 2 只消费 canonical main-session identity，不在 router 内部重新实现 channel merge
+
+### 2. `/project` switches focus inside main session
+`/project <id>` 的意义是：
+- 切换 `main session` 的 `current_project_id`
+- 让 `coordinator-agent` 在主会话内按该项目边界理解后续请求
+- 需要执行项目动作时，再由 `coordinator-agent` 调度到 `project session` 或 `internal service`
+
+`/project` 不等于：
+- 把 Human 送进 `project session`
+- 要求 Human 频繁切换不同 session
+
+### 3. Project session is a system-facing work lane
+每个 project 应有一个 `project session`，但它不是 Human 的默认工作入口。
+
+当前定义：
+- per-project only
+- 主要给 automation / other agents / internal services 使用
+- 主要承接事件流、状态更新、handoff、执行结果、blocked / review 信号
+- Human 可查看，但默认不直接在其中长期对话
+
+这意味着：
+- 不按 `workflow` 拆出多个 session
+- `workflow` 仍可保留为 envelope / trace / dispatch 提示字段
+- 避免 session list 爆炸与项目工作面污染
+
+### 4. Automation does not default to main session
+automation message 物理上仍从 channel ingress 进入系统，但它不应默认进入 `main session`。
+
+更准确的处理链路是：
+`channel message -> channel adapter -> normalized envelope -> route decision -> project session or internal service`
+
+默认规则：
+- Human 私聊消息：进入 `main session`
+- automation message：进入 `project session` 或 `internal service`
+- 只有 need decision、blocked、review request、high-signal completion 才应升级回 `main session`
+
+### 5. Service-first with fallback is acceptable
+对于结构化且低歧义的 automation message，允许：
+- channel ingress 后完成 normalization
+- 直接路由到 `internal service`
+- service 返回 reply payload 或 trace patch
+- 必要时写入 `project session`
+
+以下情况再升级给 `coordinator-agent`：
+- 参数不完整
+- project/action 无法解析
+- service 执行失败
+- 返回结果需要解释、决策或 review
+
+### 6. ACR should be its own first customer project
+`assistant-context-router` 应该成为 ACR 的首个客户项目，而不是只靠 `demo-acr` 这类外部样板来验证设计。
+
+但这条原则有一个硬边界：
+- ACR 应通过与普通项目一致的 project-owned contract surface 接入自己
+- 不能通过 ACR core 内建特例或 hidden shortcut 完成自验证
+
+这意味着：
+- `proj-assistant-context-router` 后续也应拥有自己的项目级 `router.yaml`
+- 它应能像普通项目一样产出 high-signal snapshot，并消费 `/project --lane` / `/project --surface-sync` / `/project --save`
+- `demo-acr` 仍可继续承担 validation harness 角色，但不应成为唯一验证面
+
+## Step 2 scope（redefined）
+
 ### In scope
-- Step 1 minimal context adequacy validation
-- protocol/project/workflow routing policy note
-- route trace schema 的最小扩展
-- unresolved business target project 的 safe-fail policy
-- 至多一个首批 protocol family（例如 dispatch/review）
+- channel adapter / normalization 的最小定义
+- `main session` / `project session` / `internal service` 三类处理面的边界
+- `/project` 在主会话中的 focus-switch 语义
+- `project session` 作为 system-facing event lane 的定义
+- automation route 与 escalation policy
+- 最小 route trace
+- 简洁 routing config 的宿主与边界
 
 ### Out of scope
-- progress writeback implementation
-- full context engine
-- generic router framework
-- cross-project memory redesign
-- autonomous project inference from vague natural language
-- TUI autocomplete patching
-- daemonized routing service
-- ACP visible mode productization
-- native thread shared collaboration mode
-- shared thread governance (`owner` / `lock` / `handoff`)
-- human takeover protocol
-- transcript / progress visibility framework beyond minimal current-session reporting
+- human 默认进入 `project session` 工作
+- 按 `workflow` 拆多个 project session
+- shared governance / native thread / visible mode
+- full orchestration engine
+- progress writeback automation
+- memory backend redesign
+- generic cross-runtime router framework
+- 把跨 channel main-session continuity 重新放到 router 内部实现
 
-## Step 2 Deliverables
-本阶段策略评审完成时，至少应产出以下文档或文档更新：
-1. `step2-strategy-note.md`
-   - 作为 Step 2 的正式策略基线
-2. `implementation-decision-v1.md` 增补 Step 2 layering decision
-   - 明确 Step 2 是 policy layering，不是 architecture replacement
-3. `orchestrator-integration-boundary.md` 增补 protocol owner / business target distinction
-   - 供首批 protocol family 集成对齐
+## Minimal interfaces
+Step 2 应先围绕以下最小对象工作，而不是先扩实现面：
 
-## Assumptions
-- 首批 protocol family 仍以 `dispatch/review` 为候选
-- 首批 protocol owner project 仍优先考虑 `proj-openclaw-feishu-orchestrator`
-- Step 2 的北极星是让 assistant-context-router 与 `openclaw-feishu-orchestrator` 这类真实服务协作更稳定，而不是提前扩展为完整协作基础设施
-- Step 2 讨论的 context bucket 是 workflow-scoped optional bucket，而不是默认全局注入
-- 当前不假设 OpenClaw native plugin command handler 会补上 `sessionKey`
+### NormalizedEnvelope
+建议至少包括：
+- `source_type`
+- `channel_type`
+- `project_ref`
+- `resolved_project_id`
+- `action_name`
+- `parameters`
+- `reply_target`
+- `trace_id`
+- `workflow`
+- `raw_message_ref`
 
-## Strategy A — Minimal context adequacy validation
-### 目标
-验证当前 bounded context 是否已经足够，而不是默认增加更多上下文。
+说明：
+- `project_ref` 可以是原始消息中携带的项目引用、别名或外部锚点
+- `resolved_project_id` 是 router 解析后的规范 project id
+- ingress 阶段允许 `project_ref` 或 `resolved_project_id` 为空
+- unresolved project 不应被伪造默认值；需要走 safe-fail 或 fallback
 
-### 建议验证任务
-至少选择三类真实任务：
-1. project orientation
-   - 询问当前项目 objective / next action / constraints
-2. task continuation
-   - 在已切 project 的 session 内继续推进一项具体实现或分析任务
-3. state sensitivity
-   - 连续两到三轮对话后，检查 assistant 是否仍保持正确项目边界
-
-### 对照方式
-每类任务至少做两组：
-- A：仅 Step 1 minimal context
-- B：人工补充更多 project docs
-
-建议记录结构：
-- task id
-- project id
-- session key
-- task kind
-- A/B 模式
-- expected answer traits
-- observed success / failure
-- failure classification
-  - context missing
-  - routing wrong
-  - state stale
-  - model reasoning issue
-  - unclear task framing
-
-### 验收观察点
-- 是否答对当前项目边界
-- 是否给出可执行下一步
-- 是否出现稳定缺口
-- 缺口是否真的来自 context 不足，而不是模型推理问题
-
-### 通过标准
-- 至少 3 类任务中，A 模式在大多数场景下可维持正确项目边界
-- 不出现“系统性遗漏同一类关键信息”的模式
-- 若失败，能归因到明确 bucket 缺失，而不是宽泛地说“上下文不够”
-
-### 决策规则
-- 若 A 与 B 表现接近：Step 2 不增加默认 context bucket
-- 只有当某类固定 workflow 稳定暴露同一缺口时，才考虑增加 workflow-scoped context bucket
-
-### 不通过后的处理
-- 不直接扩大默认 project context
-- 先提出具体缺失字段或缺失文档来源
-- 只有能描述成“某 workflow 缺某类稳定信息”时，才允许进入 Step 2 设计
-
-## Strategy B — Routing policy layering
-### 原则
-Step 2 不是重写架构，而是在 Step 1 上叠加 routing policy。
-
-### 最小 routing 顺序建议
-1. explicit `/project <id>`
-2. explicit project anchor in message/payload
-3. known binding
-4. protocol family only
-5. unresolved -> safe-fail
-
-### 语义分层要求
-Step 2 必须显式区分三层语义，不允许混用：
-1. protocol owner project
-   - 谁拥有这套 protocol / contract / runtime
-2. business target project
-   - 这条任务真正针对哪个业务项目
-3. workflow family
-   - dispatch / review / other future family
-
-### 最小状态与 trace 扩展
-在不改变 Step 1 store 主结构的前提下，Step 2 可以最小扩展：
-- `current_workflow`
-- `last_route_trace.protocol_family`
-- `last_route_trace.protocol_owner_project`
-- `last_route_trace.business_target_project`
-- `last_route_trace.route_evidence`
-
-### Step 2 最小能力
-- protocol family recognition
-- project anchor resolution
-- workflow family tagging
-- safe-fail + trace 扩展
-
-### 建议 trace 扩展字段
-- `protocol_family`
-- `protocol_owner_project`
-- `business_target_project`
+### RouteDecision
+建议至少包括：
+- `target_kind`
+  - `main_session`
+  - `project_session`
+  - `service`
+  - `safe_fail`
+- `target_id`
+- `route_reason`
 - `route_evidence`
+- `fallback_to_main_session`
 
-### 首批 routing acceptance 示例
-- 有显式 project anchor 的 dispatch/review 消息能 resolve 到 business target project
-- 无 anchor 但来自已知 protocol channel 的消息，最多 resolve 到 protocol owner project + workflow family
-- 任何需要 business target project 才能继续的动作，在 unresolved 时必须 safe-fail
+### ServiceResult
+建议至少包括：
+- `status`
+- `reply_payload`
+- `needs_escalation`
+- `escalation_reason`
+- `trace_patch`
 
-## Strategy C — Progress writeback（仅作为策略问题，不进入实现）
-### 当前建议
-默认不进入 Step 2 主 scope。
+硬规则建议：
+- service 可以产出 channel reply payload，但不直接决定 human-facing final reply policy
+- service 可直接写入 `project session`，用于记录执行结果、状态更新与后续事件
+- 需要进入 `main session` 的 human-facing reply，默认仍由 `coordinator-agent` 或 route decision 控制
+- service 失败时，不应直接把底层错误原样暴露给 Human；需要通过 escalation path 交给 `coordinator-agent` 转译
 
-### 原因
-- 会把系统从“读侧路由”升级成“读写协作系统”
-- 会引入触发时机、误写风险、目标文件选择、冲突处理、审计成本
-- 与 Step 2 当前主问题并不相同
+### ReplyTarget
+建议至少包括：
+- `target_kind`
+  - `channel`
+  - `main_session`
+  - `project_session`
+  - `silent_log`
+- `target_id`
+- `visibility`
+  - `human_facing`
+  - `system_facing`
+- `reply_mode`
+  - `direct`
+  - `escalate`
+  - `silent_log`
 
-### 仅在以下条件满足时才进入后续阶段
-- 已验证 major gap 来自“最近状态无法沉淀”
-- 已有明确宿主文件（例如稳定存在的 hall docs truth host）
-- 能接受显式触发优先，而非自动隐式写回
+规则建议：
+- automation/service 的默认结果可回原 channel，或写入 `project session`
+- `main session` 只接收需要 Human 决策、review、blocked 或高信号完成的事项
+- `silent_log` 仅用于 system-facing 记录，不等于 human-facing reply
 
-### 如果未来进入后续阶段，建议边界
-- 只允许显式触发，不允许隐式自动写
-- 只允许写入项目内预定义宿主文件
-- 必须生成可审计 trace
-- 必须有 safe-fail，不因 writeback 失败污染主对话流程
+### RouteTrace
+建议至少记录：
+- `source_type`
+- `channel_type`
+- `project_ref`
+- `resolved_project_id`
+- `workflow`
+- `target_kind`
+- `target_id`
+- `route_evidence`
+- `safe_fail_reason`
 
-## Candidate Validation Matrix
-建议用下表作为 Step 2 评审时的最小验证矩阵：
+## Config recommendation
+Step 2 的配置应采用：
+- 文档层说明
+- 小 YAML / JSON manifest
 
-| Area | Scenario | Expected | Fail means |
-| --- | --- | --- | --- |
-| Minimal context | orientation | correct objective / next action | Step 1 context not sufficient |
-| Minimal context | continuation | keeps project boundary over turns | context drift or stale state |
-| Routing | anchored dispatch | resolves target project | project anchor parsing not enough |
-| Routing | owner-only dispatch | resolves owner + workflow only | semantics mixed or over-routed |
-| Safe-fail | unresolved target | asks/halts safely | high-risk misrouting |
-| Trace | every route | trace is explainable | route policy not debuggable |
+推荐边界：
+
+### Global router config
+- channel adapter
+- canonical main-session alias assumptions
+- service registry
+- 共用 routing defaults
+
+### Project-level router manifest
+- project-scoped action routing
+- allowed automation actions
+- project session mapping
+- escalation / fallback rules
+
+不推荐：
+- 全部硬编码到实现里
+- 只写 prose 不提供机器可读配置
+
+## Validation focus
+Step 2 的验证重点应改成以下几类：
+
+### 1. Main session continuity
+- TUI / 微信 / 飞书私聊是否可被视为同一主会话
+- `/project` 后主会话是否保持正确项目边界
+
+### 2. Project work lane isolation
+- automation / agent 事件是否进入正确 project session
+- 普通进度是否不会污染 `main session`
+
+### 3. Service-first automation
+- 结构化 automation 是否可不经一轮 `coordinator-agent` ingress 判断而直达 service
+- 失败或歧义时是否能正确升级
+
+### 4. Escalation hygiene
+- 只有 decision / blocked / review / high-signal completion 才回到主会话
+- 普通事件保留在 project lane
 
 ## Risks
-1. protocol owner / business target 被混用
-   - 会让路由“看似成功、实际上错项目”
-2. minimal context 验证不严谨
-   - 会导致后续错误地扩大默认 context
-3. writeback 诱惑过早进入
-   - 会把 Step 2 从策略层推成读写系统
-4. workflow bucket 先于证据
-   - 会让 Step 2 范围滑向 context engine
+1. 把 `main session` 与 `project session` 混成同一种工作面
+2. 让 automation 默认灌进 Human 主对话面
+3. 过早按 `workflow` 拆多个 session，导致 session list 爆炸
+4. 把跨 channel 私聊连续性错误地下沉到 router 内部实现
+5. 在未定义 envelope / config / escalation contract 前就提前写 execution code
 
-## Needs Decision
-1. Step 2 首批 protocol family 是否锁定 `dispatch/review`
-2. 首批 protocol owner project 是否锁定 `proj-openclaw-feishu-orchestrator`
-3. minimal context adequacy validation 由谁主导记录
-   - coordinator agent
-   - 外部 agent
-   - 或两者协作
-4. Step 2 是否先出正式文档再允许任一 agent 编码
+## Needs decision
+当前仍应继续收敛或 formalize 的点：
+1. channel adapter / normalized envelope 的正式 schema
+2. routing config manifest 的正式宿主
+3. `project session` 是否只承接 event lane，还是允许少量 agent 多轮对话作为例外
+4. `internal service` 的正式返回 contract
 
 ## Acceptance
-Step 2 策略评审通过的标准：
-- 能清楚区分 protocol owner project 与 business target project
-- 能在 unresolved 时保守失败，而不是误路由
-- 能证明 Step 1 minimal context 在真实任务上是否足够
-- 若引入 workflow context bucket，必须能说明它解决了哪个已验证缺口
-- Deliverables、Assumptions、Risks、Needs Decision 均已明确，足以给后续实现设边界
+Step 2 策略评审通过的标准应是：
+- `main session` 与 `project session` 的职责边界清楚
+- `/project` 的 focus-switch 语义固定
+- automation 不默认污染 Human 主对话面
+- route / escalation / fallback 可以被解释与测试
+- 配置宿主与最小接口清楚到足以进入实现切口设计
+
+更可执行的验收检查应至少包括：
+- Human DM enters `main session` by default
+- `/project` changes focus only, never session identity
+- automation event defaults to `project session` or `service`, not `main session`
+- unresolved project/action routing must safe-fail with trace
+- service failure escalates through `coordinator-agent` or explicit fallback path, not raw user-facing leakage
 
 ## Next action
-- 先完成本策略文档评审
-- 再由 coordinator agent 统一收口成最终 Step 2 评审版本
-- 未经过 coordinator agent 收口前，不将本策略直接抽象成跨项目通用 skill
-- 若继续推进，实现必须严格遵守本文件中的 in-scope / out-of-scope
+- 由 `coordinator-agent` review 本文，确认这版边界可作为新的 Step 2 策略基线
+- 以 [step2-implementation-plan.md](<repo-root>/plan/active/step2-implementation-plan.md:1) 作为当前最小实施主线
+- 再据此重写或收口：
+  - `step2-project-context-definition.md`
+  - `step2-routing-matrix.md`
+  - `step2-context-validation.md`
+- implementation 应优先围绕：
+  - `current_project_binding`
+  - `project_contract_host_matrix`
+  - `service-first` orchestrator seam
+  - minimal visibility
+  - signal / escalation promotion

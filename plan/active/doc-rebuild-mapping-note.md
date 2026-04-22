@@ -95,10 +95,13 @@ Action:
 - `implementation/README.md`
   - Role: Execution Artifact
   - Action: 保留
-- `implementation/plugin/progress/codex-step1.md`
+- `implementation/adapters/openclaw/plugin/progress/codex-step1.md`
   - Role: Execution Artifact
   - Action: 保留
-- `implementation/plugin/*`
+- `implementation/core/*`
+  - Role: Execution Artifact / code
+  - Action: 保留
+- `implementation/adapters/openclaw/*`
   - Role: Execution Artifact / code
   - Action: 保留
 

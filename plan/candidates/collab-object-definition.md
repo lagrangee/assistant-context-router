@@ -159,6 +159,6 @@
 - handoff / review / decision protocol
 
 ## Recommended next step
-1. 将现有协作文档从 `implementation/plugin/progress/collab.md` 迁移到 `execution/COLLAB.md`
+1. 将现有协作文档从 `implementation/adapters/openclaw/plugin/progress/collab.md` 迁移到 `execution/COLLAB.md`
 2. 用本文件定义的 schema 逐步重写协作文档
 3. 再让后续 agents 按新对象继续协作

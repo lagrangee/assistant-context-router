@@ -1,26 +1,33 @@
 # Step 2A — Project Context Definition
 
 ## Purpose
-定义：当用户在 session 中切换到某个 project 后，系统应为 assistant 构建什么样的 **最小充分 project context**。
+定义：当 Human 在 `main session` 中通过 `/project <id>` 切换当前项目焦点后，系统应为 assistant 构建什么样的 **最小充分 project context**。
 
-本文件先回答“应该构建什么”，不直接回答“如何实现注入”或“如何验证 routing”。
+本文件先回答“应该构建什么”，不直接回答“如何实现 routing”或“如何分发 automation”；这些分别由 `step2-routing-matrix.md` 与 `step2-strategy-note.md` 负责。
 
-当前语境下，这个定义首先服务于 `proj-openclaw-feishu-orchestrator` 这类真实客户协作稳定性，而不是提前扩展为完整的人机多-agent 协作容器设计。
+当前语境下，这个定义首先服务于：
+- `main session` 中的 project focus switch
+- `coordinator-agent` 在主会话内的项目边界理解与恢复工作
+
+而不是服务于：
+- Human 直接进入 `project session` 工作
+- project session 内的 automation / agent event lane 设计
 
 ## Position in Step 2
 Step 2 当前顺序应为：
-1. **Step 2A：project context definition**
-2. routing matrix design
-3. validation design rewrite
+1. `step2-strategy-note.md`
+2. **Step 2A：project context definition**
+3. `step2-routing-matrix.md`
+4. `step2-context-validation.md`
 
-也就是说，routing 与 validation 设计应建立在本文件的定义之上，而不是反过来倒逼 context 膨胀。
+也就是说，routing 与 validation 设计应建立在本文件的 context baseline 之上，而不是反过来倒逼 context 膨胀。
 
 ## Problem statement
-Step 1 已证明：session 内显式 project switch 是可行的。
+Step 1 已证明：session 内显式 `/project` switch 是可行的。
 
 Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 
-> 当 project 已明确后，什么样的 context 组合足以让 assistant 快速恢复到**正确的项目边界**与**可工作的状态**？
+> 当 Human 不切 session、只在 `main session` 中通过 `/project` 切换项目焦点时，什么样的 context 组合足以让 assistant 快速恢复到**正确的项目边界**与**可工作的状态**？
 
 这要求 project context 同时满足：
 - enough to orient
@@ -31,9 +38,9 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 
 ## Design goals
 1. **Correct project boundary first**
-   - 先保证 assistant 知道自己正在处理哪个项目，而不是先追求“更多信息”。
-2. **Resume working, not full replay**
-   - 目标是恢复可工作状态，不是重放全部历史。
+   - 先保证 assistant 知道 `main session` 当前正聚焦哪个项目，而不是先追求“更多信息”。
+2. **Resume working inside main session**
+   - 目标是在主会话中恢复可工作状态，不是把 Human 送进 project session 或重放全部历史。
 3. **Bounded by default**
    - 默认只注入最小充分对象，不默认扩展到大量项目文档或完整对话历史。
 4. **Document-driven first**
@@ -42,7 +49,7 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
    - 如果未来发现缺口，应能按 bucket 增量扩展，而不是整体放大 context。
 
 ## Definition: minimum sufficient project context
-当前建议，project switch 后的默认最小 context 应由三层组成：
+当前建议，`/project` 后在 `main session` 内默认加载的最小 context 应由三层组成：
 
 ### Layer 1 — Project identity
 回答：
@@ -86,7 +93,21 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 
 作用：
 - 将 project context 从“知道项目是什么”推进到“能够立刻恢复工作”
-- 避免 assistant 每次切换 project 后还要重新从大量文档推断当前工作点
+- 避免 assistant 每次 `/project` 后还要重新从大量文档推断当前工作点
+
+## What this context is for
+这个默认 context 是给：
+- `main session` 中的 `coordinator-agent`
+- 在 Human 执行 `/project` 后继续讨论、判断、规划、解释与推进工作
+
+它不是给：
+- automation message 直接消费
+- `project session` 中的事件流默认注入
+- Human 默认进入另一个工作会话时使用
+
+也就是说：
+- `project session` 是 system-facing work lane
+- `/project` 后的 default project context 是 human-facing main-session working context
 
 ## Why docs map is not in the default minimum trio
 `docs/README.md` 很重要，但当前不建议把它列入默认 minimum trio。
@@ -94,26 +115,26 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 原因：
 1. 它主要承担导航，而不是项目定义或当前工作态
 2. `STATUS.md` 已经可以承担“先往哪看”的一级导航
-3. 将 docs map 作为默认第四对象会增加上下文，但不一定增加任务可完成性
+3. 将 docs map 作为默认第四对象会增加上下文，但不一定增加主会话内任务可完成性
 
 因此当前建议：
 - `docs/README.md` = **default available, but not default injected**
 - 当 assistant 需要更细的文档导航时，再按需下钻
 
 ## Why collab panel is not default injected
-`execution/COLLAB.md` 当前不建议默认进入 project context。
+`execution/COLLAB.md` 当前不建议默认进入 `/project` 后的主会话 context。
 
 原因：
 1. 它是高频协作面板，噪音与时效性都更高
-2. 它更适合在 execution-heavy 或 multi-agent handoff 场景下按需读取
-3. 默认注入会把 project context 从“稳定工作态”拉向“高频过程流”
+2. 它更适合在明确需要读取多 agent handoff / blocked / review 状态时按需读取
+3. 默认注入会把主会话里的项目恢复，从“稳定工作态”拉向“高频过程流”
 
 因此当前建议：
-- `collab.md` = **optional execution bucket**
-- 只有在明确需要读取多 agent 协作进度 / handoff 细节时再下钻
+- `execution/COLLAB.md` = **optional execution bucket**
+- 只有在明确需要读取协作流转细节时再下钻
 
 ## Why full project conversation is not default context
-“基于这个 project 的对话”是有价值的，但当前不建议作为默认注入。
+“基于这个 project 的完整对话”有价值，但当前不建议作为默认注入。
 
 原因：
 1. 对话历史天然膨胀且噪音高
@@ -124,7 +145,7 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 因此当前建议：
 - raw project conversation = **non-default optional source**
 - 优先把有效状态沉淀到 `RESUME.md`
-- 只有当某类任务稳定要求 recent conversational nuance 时，才考虑增加 conversation-summary bucket
+- 只有当某类主会话任务稳定要求 recent conversational nuance 时，才考虑增加 conversation-summary bucket
 
 ## Raw conversation: keep or not?
 当前建议：**有必要完整保留 raw project conversation，至少作为可按需加载的底层来源**。
@@ -138,7 +159,7 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 
 特点：
 - 默认不注入
-- 不直接作为 resume context
+- 不直接作为主会话 resume context
 - 更像底层素材层，而不是默认工作层
 
 ### Layer B — compacted conversation state
@@ -151,9 +172,9 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 - 不是原始对话回放
 - 应追求短、稳、可恢复工作
 
-### Layer C — default project context
+### Layer C — default project context in main session
 作用：
-- project switch 后默认进入的最小充分上下文
+- `/project` 后默认进入 `main session` 的最小充分上下文
 
 当前建议仍为：
 - `project.yaml`
@@ -176,19 +197,19 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 ### More acceptable near-term policy
 - **显式或半显式 compaction** 优先
 - 例如：
-  - project 切换时建议生成/更新 resume state
+  - 项目阶段收口时建议生成/更新 resume state
   - agent 在阶段收口时更新 `RESUME.md`
   - 用户/agent 明确触发一次 compact-and-write
 
 ### Less acceptable near-term policy
-- 每次 project 切换时静默自动写回
+- 每次 `/project` 时静默自动写回
 
 原因：
 - 写回时机、覆盖策略、错误沉淀风险都还未定义稳定
 - 这会把 Step 2A 从 context definition 直接推向 writeback system design
 
 ## Context bucket model
-当前建议把 project context 理解为以下 buckets：
+当前建议把 `/project` 后主会话里的 project context 理解为以下 buckets：
 
 ### Default buckets
 1. identity bucket
@@ -212,7 +233,7 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 
 ## Decision rule for bucket expansion
 未来只有在以下条件满足时，才应把某个 optional bucket 上升到更强默认地位：
-1. 某类任务稳定暴露同一缺口
+1. 某类主会话任务稳定暴露同一缺口
 2. 缺口无法由 identity / status / resume trio 解决
 3. 缺口能清楚归因到某个具体 bucket
 4. 增加该 bucket 不会显著破坏 bounded context
@@ -221,9 +242,9 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 - 不因零散失败就扩大默认 context
 - 不因“感觉可能更聪明”就增加 bucket
 
-## What a reasonable project context should achieve
+## What a reasonable main-session project context should achieve
 在默认 trio 足够时，assistant 应能：
-1. 说清当前在处理哪个项目
+1. 说清当前 `main session` 正在处理哪个项目
 2. 说清这个项目的大目标与当前阶段
 3. 说清当前主线与下一步
 4. 保持项目边界，不误入别的项目
@@ -233,19 +254,20 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 默认 trio 不需要直接解决：
 - 全部实现细节问题
 - 全部历史协作细节
-- 所有验证记录
+- 所有 project session 事件流
 - 全量项目对话细节
-- 复杂 protocol owner / business target routing 歧义
+- automation dispatch 细节
+- complex route semantics beyond `/project`-scoped main-session work
 
-这些属于后续 optional bucket 或 routing matrix 讨论范围。
+这些属于后续 optional bucket 或 routing / project-work-lane 讨论范围。
 
 ## Implication for Step 2 routing design
 一旦接受本定义，routing design 就应建立在以下前提上：
-1. project routing 先只负责把 assistant 带到正确 project
+1. `/project` routing 先只负责让 `main session` 聚焦到正确 project
 2. 进入 project 后，默认先装载 identity + status + resume
-3. 更细粒度文档与执行细节由后续 bucket resolution 处理
+3. 更细粒度文档与协作细节由后续 bucket resolution 处理
 4. routing matrix 不应以“多塞文档”为主要修复手段
-5. advanced collaboration mode（例如 native thread、shared thread governance）不在当前 Step 2A 默认设计范围内
+5. `project session` 的 event lane 不应反向决定 Human 主会话默认装载什么
 
 ## Open questions
 当前仍待后续讨论的问题：
@@ -257,12 +279,5 @@ Step 2A 要解决的问题不是“如何喂更多上下文”，而是：
 ## Current recommendation
 当前推荐先将以下定义视为 Step 2A baseline：
 - **Default minimum trio** = `project.yaml` + `README.md` + `STATUS.md` + `RESUME.md`
+- 它服务于 `/project` 后 `main session` 内的项目恢复与继续工作
 - 其中按角色理解仍是三层：identity / status / resume
-- `docs/README.md` 与 `collab.md` 暂不默认注入
-- project conversation 暂不默认注入
-
-## Next step
-本定义通过后，下一步应进入：
-1. Step 2 routing matrix design
-2. 重写 `step2-validation-design.md`
-3. 基于真实任务验证 default trio 是否足够
