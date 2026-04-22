@@ -1,0 +1,18 @@
+{
+  "name": "@ourclawd/assistant-context-router-plugin",
+  "private": true,
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test ../../../tests/core/*.test.ts ../../../tests/openclaw/*.test.ts",
+    "validate:demo-acr": "node scripts/validate-demo-acr.ts",
+    "validate:openclaw-cli": "node scripts/validate-openclaw-cli.ts",
+    "init:feishu-config": "node scripts/init-feishu-config.ts",
+    "init:runtime-bindings": "node scripts/init-runtime-bindings.ts",
+    "init:workflow-bindings": "node scripts/init-workflow-bindings.ts"
+  }
+}

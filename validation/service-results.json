@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "by_trace_id": {
+    "proj-assistant-context-router-blocked-human-decision-001": {
+      "status": "needs_escalation",
+      "result_kind": "needs_escalation",
+      "summary": "Dispatch is blocked until project owner approval is granted",
+      "reply_payload": null,
+      "needs_escalation": true,
+      "escalation_reason": "blocked_human_decision_required_project_owner_approval",
+      "run_id": "run-acr-blocked-001",
+      "queue_ref": "queue-acr-blocked-001",
+      "trace_patch": {
+        "validation_case": "blocked_human_decision"
+      }
+    }
+  },
+  "by_action_name": {
+    "dispatch": {
+      "status": "ok",
+      "result_kind": "accepted",
+      "summary": "Dispatch accepted for proj-assistant-context-router",
+      "reply_payload": "Accepted dispatch for proj-assistant-context-router",
+      "needs_escalation": false,
+      "escalation_reason": null,
+      "run_id": "run-acr-dispatch-001",
+      "queue_ref": "queue-acr-dispatch-001",
+      "trace_patch": {
+        "validation_case": "high_signal_completion"
+      }
+    },
+    "review": {
+      "status": "needs_escalation",
+      "result_kind": "needs_escalation",
+      "summary": "Review requires project owner attention",
+      "reply_payload": null,
+      "needs_escalation": true,
+      "escalation_reason": "review_required",
+      "run_id": "run-acr-review-001",
+      "queue_ref": null,
+      "trace_patch": {
+        "validation_case": "review_request"
+      }
+    },
+    "review_resolution": {
+      "status": "ok",
+      "result_kind": "accepted",
+      "summary": "Review resolution recorded for proj-assistant-context-router",
+      "reply_payload": "Review resolution recorded for proj-assistant-context-router",
+      "needs_escalation": false,
+      "escalation_reason": null,
+      "run_id": "run-acr-review-resolution-001",
+      "queue_ref": null,
+      "trace_patch": {
+        "validation_case": "review_resolution"
+      }
+    }
+  }
+}

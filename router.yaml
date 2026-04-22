@@ -1,0 +1,31 @@
+actions:
+  dispatch:
+    target_kind: service
+    workflow: dispatch
+    requires_resolved_project: true
+
+  review:
+    target_kind: service
+    workflow: review
+    requires_resolved_project: true
+
+  review_resolution:
+    target_kind: service
+    workflow: review
+    requires_resolved_project: true
+
+  append_project_note:
+    target_kind: project_session
+    workflow: general
+    requires_resolved_project: true
+
+service_binding:
+  runtime_kind: validation_fixture
+  target_ref: <repo-root>/validation/service-results.json
+  metadata:
+    note: "Validation-only harness for ACR self-hosted task/bug writeback rehearsal."
+
+task_bug_policy:
+  defaults:
+    acceptance_mode: manual_acceptance
+    completion_notify_mode: no_dm_on_completion_boundary

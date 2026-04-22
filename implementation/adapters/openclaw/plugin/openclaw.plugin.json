@@ -1,0 +1,38 @@
+{
+  "id": "assistant-context-router",
+  "name": "Assistant Context Router",
+  "description": "Project-centric command and prompt-context plugin for OpenClaw",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "registryPath": {
+        "type": "string",
+        "description": "Absolute path to projects/index.yaml"
+      },
+      "dataDir": {
+        "type": "string",
+        "description": "Optional plugin data directory override"
+      },
+      "routerConfigPath": {
+        "type": "string",
+        "description": "Optional absolute path to a YAML router manifest"
+      },
+      "runtimeBindingsPath": {
+        "type": "string",
+        "description": "Optional absolute path to a YAML runtime bindings manifest for canonical main-session resolution; defaults to <dataDir>/runtime-bindings.yaml when omitted"
+      },
+      "feishuConfigPath": {
+        "type": "string",
+        "description": "Optional absolute path to a YAML Feishu adapter config manifest for work-surface and future delivery bindings; defaults to <dataDir>/feishu-adapter.yaml when omitted"
+      },
+      "workflowBindingsPath": {
+        "type": "string",
+        "description": "Optional absolute path to a YAML workflow surface bindings manifest for dispatch/review default targets; defaults to <dataDir>/workflow-bindings.yaml when omitted"
+      }
+    }
+  },
+  "runtime": {
+    "entry": "./src/index.ts"
+  }
+}
