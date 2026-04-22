@@ -1,99 +1,224 @@
 # RESUME
 
-## Purpose
-这是 `assistant-context-router` 的 **resume point / working-state 对象**。
-
-它回答：**如果我现在要继续这个项目，应该从哪里接上？**
-
-它服务于：
-- OpenClaw agent (`coordinator-agent`)
-- Codex
-- 其他协作 agent
-- Human 在中断后快速恢复上下文
-
-它不承担：
-- 项目总介绍（那是 `README.md`）
-- 项目 executive summary / 单入口（那是 `STATUS.md`）
-- 多 agent 协作流转面（那是 `execution/COLLAB.md`）
-
 ## Current phase
-Step 1.5 continuity fix in progress, Step 2 kickoff deferred until hall-doc recovery and conversational save both pass
+Step 1.5 continuity baseline 已稳定；Step 2 当前已把最小闭环推进到 `Cut 8D`。Feishu 侧当前不仅完成了 projection / governance / catalog / business notification 的 first slice，也已经把 `Tasks / Bugs` 的 policy schema 与 `Task/Bug writeback first slice` 真正接进 runtime。当前 interruption point 是：`/project` 已收口为唯一公开命令入口，`feishu-adapter.yaml`、`runtime-bindings.yaml`、`workflow-bindings.yaml` 已形成默认 runtime config host 组合，而 `proj-assistant-context-router` 现在也已补上 project-owned [router.yaml](<repo-root>/router.yaml:1)、[validation/service-results.json](<repo-root>/validation/service-results.json:1)、Feishu `Projects` anchor `<projects-row-record-id>` 与 validation `Task` row `<validation-task-record-id>`；真实 `automation_ingress` 与 `governance_escalation` 两条关键路径都已 live-validated：当前默认 binding `automation-ingress` 已能触发 `Accepted dispatch for proj-assistant-context-router` 并推动 task row 进入 `Doing / EXECUTE / in_progress`，`review_request` 也已成功升级到 `WeChat DM`。当前新增的实现收口是：`review_resolution` 已进入 project-owned self-host harness，并且 writeback 现在能够把 Human 的 accepted/rejected 决策对齐成 `Done/Fixed` 或回退 `Todo`，且不会因 row 已处在 `Done / Fixed` 而错误 terminal noop。上一轮确认的 enum drift 现已修复：`Dict Definition` 已补齐 `current_step.COMPLETE / REPLAN` 与 `step_result.accepted / rejected`，writeback preflight guard 也已落地；validation task `<validation-task-record-id>` 当前已真实对齐到 `Done / COMPLETE / accepted`。当前下一步不再是补 schema，而是回到更高层的 workflow/product 主线推进。 
 
-## Current mainline
-当前主线已从“准备进入 Step 2”回收为“先补齐 Step 1 验收缺口”：
-1. 已确认 `/project` 的 session-owned state 写入与 `before_prompt_build` hook 链路存在且插件已加载到当前 OpenClaw
-2. 已确认当前默认 injected context 仍偏向 `project.yaml` + `README.md` + `docs/recent-state.md`，未充分对齐门厅恢复模型
-3. 当前主目标是完成 Step 1.5 acceptance fix，使 `/project <id>` 后默认 project context 以 `STATUS.md` / `README.md` / `RESUME.md` 为主，并保持 bounded
-4. `/save` 的默认工作流正在切到 conversational draft -> confirm -> apply，以便更好服务第二天 continuity
-5. 在 Step 1.5 验收通过前，Step 2 implementation kickoff 暂缓
+## Current working cut
+- 当前 Cut 6 / Cut 7 已完成：
+  - `minimal-visibility-evidence` contract 已 formalize
+  - `ServiceResult` 已支持单个 `artifact_ref`
+  - `artifact_ref` 已沿 lane / notification / escalation / prompt hint 贯通
+  - `/project --lane` 与 execution-facing prompt hint 已能显示最小 evidence 提示
+  - `work-surface-projection` contract 已 formalize
+  - 高信号 signal 已会更新 per-project latest work-surface snapshot
+  - snapshot 当前字段保持极小：
+    - `signal_kind`
+    - `surface_status`
+    - `headline`
+    - `summary`
+    - `run_id / queue_ref`
+    - optional `artifact_ref`
+- 当前已确认的 Feishu 方向：
+  - 默认沿用既有 Base：`private config host`
+  - 当前机器已验证可通过 `lark-cli` bot identity 读取这份 Base
+  - Human review 通过后，已在 live Base 创建：
+    - `Dict Definition.Work Surface状态`
+    - `Work Surface Snapshots`
+  - `Work Surface Snapshots` 当前实际字段名已定：
+    - `Project ID`
+    - `所属项目`
+    - `状态`
+    - `标题`
+    - `摘要`
+    - `更新时间`
+  - 已新增 manual sync / dry-run 入口，并在真实 Base 上验证通过：
+    - `proj-bitable-pm-system`
+    - relation / datetime / artifact fields 均能生成 upsert plan
+  - main-session plugin 已新增 project-scoped 手工命令：
+    - 首选入口：`/project [<project_id>] --surface-sync [--apply]`
+    - 默认 `dry_run`
+    - `--apply` 才真正写 Feishu
+    - 未传 `project_id` 时使用当前 `/project` binding
+    - `/project` 现已成为唯一公开命令入口：
+      - `/project --all [query]`
+      - `/project [<project_id>] --lane`
+      - `/project [<project_id>] --catalog-sync [--apply]`
+      - `/project --save`
+      - `/project [<project_id>] --surface-sync [--apply]`
+      - `/project --help`
+    - default runner 当前会先解析统一的 `work-surface binding`
+      - 支持 env + optional local config host
+      - 若未显式指定，则默认尝试发现 `<plugin dataDir>/assistant-context-router/feishu-adapter.yaml`
+      - 若没有显式 binding，现阶段仍保守回退到已确认的 Base token
+    - `FEISHU_BASE_TOKEN` 仍可作为最直接的 env override
+    - TUI command path 现在会直接返回 friendly sync error text，不再吞成 generic failure
+  - 当前机器的默认 runtime host 已创建：
+    - `<openclaw-acr-data-dir>/feishu-adapter.yaml`
+    - 已显式包含 `work_surface` 与 `governance.default_target`
+  - 当前机器的默认 runtime bindings host 也已创建：
+    - `<openclaw-acr-data-dir>/runtime-bindings.yaml`
+    - 当前以 `agent:main:main` 作为 canonical session
+    - 当前最小 alias：`wechat:dm:human`
+  - `governance delivery binding` 已接入默认 escalation runtime path
+    - 当前先进入幂等 `governance delivery outbox`
+    - 再通过 OpenClaw runtime sender 投递到解析后的 canonical session
+    - 依赖 `runtimeBindings.main_sessions` alias 解析，例如 `local:human_dm -> wechat:dm:human -> agent:main:main`
+    - 当前仍未直接接 WeChat / Feishu 外部 API
+  - 当前已新增 project-scoped governance inspect 入口：
+    - `/project [<project_id>] --governance`
+    - 默认按当前 project binding 查看
+    - 展示的是 governance outbox mirror，而不是 governance truth
+  - 第一次 live upsert 已完成：
+    - first apply 走 `create`
+    - second apply 走 `update`
+    - stable record id：`<work-surface-snapshot-record-id>`
+  - plugin 已新增 optional `workSurfaceProjectionObserver`
+    - observer 直接消费真实 signal 链产出的 snapshot 对象
+    - observer failure safe-fail，不反向影响主链
+    - 当前默认不自动 apply 到 Feishu
+  - `Tasks / Bugs` 的 meta 设计、字段契约、状态流转逻辑应继承
+  - `Cut 8A` 不直接把 current snapshot 写进 `Tasks / Bugs`
+  - `Service Runs Monitor` 不作为当前 projection 的默认目标
+  - 后续若还要新增或调整表结构，仍必须先和 Human 讨论确认
+  - `Task/Bug writeback first slice` 当前也已 implemented + auto-validated：
+    - hook 点位于真实 `service path`
+    - 只接受显式 row anchor：
+      - `task_record_id / taskRecordId`
+      - `bug_record_id / bugRecordId`
+    - 当前已真实写入：
+      - `current_step / step_result / next_action / last_event_at`
+      - `ACR开始执行时间`
+      - `执行摘要`（Task）
+      - `状态` 的非终态推进
+    - 当前 guardrails：
+      - terminal row 默认 noop
+      - 避免 `Reviewing -> Doing/Fixing` 回退
+      - 不自动写 `Done / Fixed / 实际完成时间 / 修复结果`
+- 当前已落地并通过 auto validation：
+  - `current_project_binding`
+  - `project_contract_host_matrix`
+  - `/project --save` preview/apply contract
+  - route / trace / safe-fail
+  - `NormalizedEnvelope + trace_id`
+  - service-first orchestrator action/result shell
+  - project-owned service bridge
+  - signal promotion
+  - minimal `business notification` record
+  - minimal `main-session escalation` store
+  - Gate 5 `escalation hygiene` human validation
+  - `project-session-shadow-lane` contract
+  - lane summary injection tightening
+  - `/project --lane` summary polish
+  - `minimal-visibility-evidence` contract
+  - `artifact_ref` carry-through
+  - `work-surface-projection` contract
+  - latest work-surface snapshot
+  - Feishu `Work Surface Snapshots` live schema
+  - `lark-cli base` work-surface adapter skeleton
+  - Feishu manual sync / dry-run entry
+  - Feishu live create/update validation
+  - runtime work-surface projection observer hook
+- 当前主边界：
+- `main session` 是唯一 human-facing 默认入口
+- `/project` 只切 focus，不切 session
+- `/project` 也是唯一公开命令入口；project-scoped list/lane/catalog-sync/save/surface-sync/help 都通过 flags 收口
+- `project session` 是 shadow lane / read model，不裁 escalation truth
+  - `business notification` 与 `main-session escalation` 已正式分宿主
+  - `artifact_ref` 当前只是 evidence pointer，不是 artifact host
+  - work-surface adapter 后续应只消费 latest projection snapshot，不反向读取 lane / notification / escalation 作为真相拼装面
 
-## Recently completed
-- Discord 已配置为私人协作 workspace
-  - guild allowlist 已建立
-  - native commands 已开启
-  - ACP thread bindings 已开启
-  - Discord exec approvals 已开启
-- 已确认当前真实 Discord 工作频道：`1490988879304724603`
-- 已完成一轮关键排障结论：
-  - `TUI -> sessions_send -> Discord session` 不能替代原生 Discord inbound 来触发 ACP thread binding
-  - 即使目标 session 是 Discord channel session，inter-session provenance 仍会让 ACP spawn 看到 `webchat`
-- Escalation protocol v1.0 已完成
-  - 定义了升级矩阵（🔴必须 / 🟡条件 / 🟢自主）
-  - 明确了 "human in the loop, not as the bus" 的执行规则
-  - 文档：`plan/active/escalation-protocol.md`
-- Step 1 已完成并作为本地 MVP baseline 验收通过
-- 已建立顶层门厅文档三件套：`README.md` / `STATUS.md` / `RESUME.md`
-- 已更新 docs map 与门厅阅读顺序
-- 已确认当前项目文档体系需要按 lifecycle + role 重建，而不是继续沿用现有目录习惯
-- 已形成文档体系重建原则与盘点文档：
-  - `plan/active/doc-system-rebuild-v1.md`
-  - `plan/active/doc-rebuild-mapping-note.md`
-- 已收拢 skill draft bundle 到 `meta/skill-draft/`
-- 已将 discovery / plan overflow 材料移入 `docs/archive/`
-
-## Last interruption point
-当前中断点已经切换为：
-- hall-doc-first recovery 已落到 `project-context-loader.ts` 与测试
-- `/save` 已从“立即写入”切到“先生成待确认 draft，再 apply/cancel”
-- 当前剩余主线是验证这套 continuity 闭环是否适合 OpenClaw 日常使用
-- 若 conversational save 仍不够表达真实工作态，下一轮应评审更强的 coordinator-agent-native LLM compaction
+## Why this is the current cut
+- Gate 5 已证明 `signal derivation -> split -> governance hint` 主链成立
+- Cut 5 已证明：
+  - `project session` 可以继续保持 shadow lane / read model 身份
+  - lane summary 不必因弱关键词而污染普通项目状态问答
+  - `/project --lane` 也已能更明确地表达“历史事件”与“未决治理事项”的区别
+- Cut 6 已证明：
+  - ACR 当前可以承接最小 evidence pointer，而不引入新的 authority host
+  - `artifact_ref` 不会自动扩大 prompt 注入边界
+- Cut 7 已证明：
+  - ACR 当前已经能产出可被 work-surface adapter 直接消费的最新 high-signal snapshot
+  - work-surface visibility 不必由 adapter 自己同时去拼 lane / notification / escalation
+- 当前剩余任务不再是继续补 ACR 内部 projection 接口，也不再是继续讨论 Feishu 最小字段、dry-run 入口、live upsert 可行性或 runtime hook 形态；在 live governance delivery 已验证通过、`Projects` catalog sync first slice 已 live-validated、`Business Notification` 的 Feishu IM delivery first slice 已 implemented + auto-validated，且 `Task/Bug writeback first slice` 已接入 runtime 后，Feishu 主线的实现顺序已进一步收敛为：先完成真实 `dispatch group -> Task/Bug row` live validation，然后让 `proj-assistant-context-router` 进入 self-hosted real usage，最后再实现第一种 `Feishu Action Ingress`
 
 ## Immediate next actions
-1. 让 Codex 按项目文档执行 Step 1.5 acceptance fix
-2. 在 OpenClaw 中验证 `/save` 默认返回 conversational draft，而不是立即写文件
-3. 验证 `/save apply` / `/save cancel` 是否足够顺手，能否支撑第二天 continuity
-4. 再重新判断 Step 1.5 是否可验收通过，以及是否恢复 Step 2 kickoff
+- 保持 `Cut 7` 的 snapshot 语义不再继续扩张
+- 以 [feishu-sync-architecture-note.md](<repo-root>/plan/active/feishu-sync-architecture-note.md:1) 作为当前 Feishu 主线的 authoritative host
+- 以 [feishu-project-catalog-sync-contract.md](<repo-root>/plan/active/feishu-project-catalog-sync-contract.md:1) 作为 `Projects` catalog sync 的 authoritative host
+- 以 [feishu-action-ingress-contract.md](<repo-root>/plan/active/feishu-action-ingress-contract.md:1) 作为 `Action Ingress` 的 authoritative host
+- 以 [feishu-business-notification-surface-contract.md](<repo-root>/plan/active/feishu-business-notification-surface-contract.md:1) 作为 `Business Notification` 的 authoritative host
+- 以 [feishu-escalation-surface-contract.md](<repo-root>/plan/active/feishu-escalation-surface-contract.md:1) 作为 `Escalation Surface` 的 authoritative host
+- 以 [feishu-adapter-config-host-contract.md](<repo-root>/plan/active/feishu-adapter-config-host-contract.md:1) 作为 Feishu config host 话题的 authoritative host
+- `Projects` catalog sync 的真实 Base 验证已完成：
+  - `demo-acr`
+  - `dry_run = noop`
+  - `apply = noop`
+  - anchor record id：`<projects-catalog-record-id>`
+- `Business Notification` 的 Feishu IM delivery first slice 当前已落地：
+  - 新增 `BusinessNotificationDeliveryRecord` outbox
+  - 新增 `/project [<project_id>] --notifications`
+  - 当前 deliverable target 才会走 `lark-cli im` sender
+  - 无 target / unsupported target 会稳定回落为 `record_only`
+- 当前已采纳的 workflow / governance operating-surface 分工：
+  - `automation_ingress`
+    - 当前默认 binding：`automation-ingress`
+    - 承接外部 structured input 与同上下文 result reply
+  - `agent_coordination`
+    - 当前默认 binding：`agent-coordination`
+    - 承接 agent 间协作 / review 流转
+  - `governance_escalation`
+    - 当前默认 binding：`WeChat DM`
+    - 只承接 `main-session escalation`
+- 当前 `Tasks / Bugs` 的 writeback ownership 与 acceptance policy 也已进入单独 contract：
+  - [feishu-task-bug-ownership-acceptance-contract.md](<repo-root>/plan/active/feishu-task-bug-ownership-acceptance-contract.md:1)
+  - `状态` 当前被视为 policy-gated shared field
+  - `acceptance_mode` 与 `completion_notify_mode` 应作为 card policy surface，并支持 `project default + row-level override`
+  - project default 当前建议落在 project-owned `router.yaml`
+  - 当前 live Base 已真实创建：
+    - `ACR验收模式`
+    - `ACR完成提醒`
+    - `ACR开始执行时间`
+  - 当前不再是“是否改表”的讨论，而是：
+    - 如何用真实 dispatch traffic 验证 `Task/Bug writeback first slice`
+    - 以及哪些字段继续后置到终态 policy-gated writeback
+  - 当前也已同批补：
+    - `ACR开始执行时间`
+    - 类型：datetime
+    - 语义：首次进入 `Doing / Fixing` 时写入
+  - 当前推荐的系统安全默认值：
+    - `acceptance_mode = manual_acceptance`
+    - `completion_notify_mode = no_dm_on_completion_boundary`
+- 当前 `review_resolution` 也已进入实现态：
+  - project-owned `router.yaml` 已新增 `review_resolution`
+  - self-hosted `validation/service-results.json` 已新增 `review_resolution`
+  - writeback 已支持：
+    - `accepted -> Done / Fixed`
+    - `rejected -> Todo`
+  - 并允许 Human 先在 card 上改到 `Done / Fixed`，再由 ACR 对齐字段而不被 terminal noop 吞掉
+- 当前下一步：
+  - 基于已打通的 `review_resolution -> Task/Bug row` 闭环，继续推进真实 workflow automation 主线
+  - 优先讨论并收敛下一批 product-level surface / policy，而不是再回到 enum/schema 阻塞排查
+- 然后再评估 completion-boundary notify / DM policy 是否要进入下一刀实现
+- `Members` / `Owner` relation、`card action`、duplicate / drift / reconcile 保持后置，不抢在上述顺序前面
+- 若未来继续自动化，再单独评估 observer auto-apply，而不是直接扩成 daemon / board sync-all
 
-## Pending decisions
-1. Step 1.5 完成后，Step 1 是否可按“门厅恢复体验”口径验收通过
-2. `step2-context-validation.md` 是否需要在开发前再做一次显式重写，还是边实现边回补
-3. `/save` 当前 conversational save 是否已经足够顺手，还是要继续升级到更强的 coordinator-agent-native LLM compaction
-4. Step 2 完成后，是否正式开启 `plan/candidates/step3-candidates.md` 的下一轮评审
-
-## Resume reading order
-中断后恢复，建议先读：
-1. `STATUS.md`
-2. `RESUME.md`
-3. `execution/COLLAB.md`
-4. `docs/README.md`
-5. `plan/active/doc-system-rebuild-v1.md`
-6. `plan/active/doc-rebuild-mapping-note.md`
-
-## Resume / save note
-- `RESUME.md` 是单线程恢复工作的第一宿主
-- `execution/COLLAB.md` 用于判断当前协作流转与 writeback 上下文
-- `/save` 的目标应优先对齐门厅恢复模型，并通过 conversational draft -> confirm -> apply 完成收口
-- 当前 `/save` 仍是 bounded draft baseline，不等于 fully automatic memory compaction
-
-## Meta note
-- `meta/skill-draft/` 是你、Human 与 OpenClaw agent (`coordinator-agent`) 后台并行维护的长期抽象资产
-- 它**不是当前项目执行面**，默认不进入执行 agent 的阅读顺序
-- 但 OpenClaw agent (`coordinator-agent`) 在后续元讨论时应记得读取它，避免遗忘抽象层进展
+## Do not drift into
+- 不重新回到“human 直接在 project session 工作”的模型
+- 不按 workflow 拆更多 session，避免 session list 爆炸
+- 不把跨 channel main-session continuity 错放到 router 内部实现；这属于上游 OpenClaw/session adapter 能力
+- 不把 ACP visible mode / native thread / shared governance 拉回当前主线
+- 不在 ACR core 中继续保留或新增任何 project-specific adapter / demo service
 
 ## Guardrail
-在当前阶段：
-- Step 1.5 只补 hall-doc recovery 验收缺口，不得滑入 Step 2 routing / writeback / context-engine 扩张
-- Step 2 只服务 `proj-openclaw-feishu-orchestrator` 这类真实客户协作稳定性
-- 不把 ACP visible mode / native thread / shared thread governance 塞进当前主 scope
-- 不让 `/save` 膨胀成自动 writeback system
-- 不让 skill draft 升格为正式 skill
+- `main session` 是唯一 human-facing 默认入口
+- `project session` 是 system-facing event lane / shadow lane，Human 可查看但默认不直接参与
+- `/project` 只切主会话焦点，不切 session
+- automation 结果默认进入 project lane / business side；只有高信号事项才应上浮到 `main session`
+- 当前 `project session` 与 `main-session escalation` 已分宿主；不要把 escalation truth 塞回 lane summary
+- lane summary 当前只应在 execution-facing 问题下按需注入；不要再因为 `状态 / 最近 / latest / recent` 这类弱词自动带回主会话
+- `artifact_ref` 当前只应作为高信号 evidence pointer，被 lane / notification / escalation / prompt hint 消费；不要把它扩成 artifact system
+- `work-surface snapshot` 当前只是 latest high-signal projection，不是 backlog、board truth 或 unresolved governance list
+- 后续 Feishu 表结构改动必须先讨论确认；不要擅自新建/改字段/改枚举/改 view
+- 当前 `main-session escalation` 仍是被动显现（next-prompt hint），不是主动打断式提醒；不要在 Cut 5 中把它偷偷扩成 interruption system
+- business notification 当前只做最小 record，不扩成完整 notification bus
+- project-specific integration code 仍应位于项目 repo，通过 manifest / contract 与 ACR 对接
