@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Writeback"
+  short_description: "Write current-thread truth back into project docs"
+  default_prompt: "Use $project-writeback to write the current thread's adopted conclusions back into STATUS.md, RESUME.md, or execution/COLLAB.md."
