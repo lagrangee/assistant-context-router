@@ -1,0 +1,34 @@
+# macOS / editor noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node / test outputs
+node_modules/
+coverage/
+dist/
+.nyc_output/
+*.tsbuildinfo
+
+# Logs / temp files
+*.log
+*.tmp
+.tmp/
+
+# Secrets / machine-local config
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Local working-state scratch files
+*.local.md
+*.local.txt
+*.local.json
+*.local.yaml
+*.local.yml
+
+# Optional local scratch area if introduced later
+scratch/
