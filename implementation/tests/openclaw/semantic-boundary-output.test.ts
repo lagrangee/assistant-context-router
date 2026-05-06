@@ -64,7 +64,7 @@ async function writeCompletionDmRuntimeBindings(workspace: TempWorkspace) {
         binding_id: "human-dm",
         runtime_kind: "openclaw",
         canonical_session_key: "main:human",
-        aliases: ["wechat:dm:human"],
+        aliases: ["local:human_dm", "wechat:dm:human"],
       },
     ],
     channelTargets: [

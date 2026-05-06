@@ -789,7 +789,7 @@ test("governance delivery can resolve local wechat target into canonical runtime
         binding_id: "main-session",
         runtime_kind: "openclaw",
         canonical_session_key: "main:human",
-        aliases: ["wechat:dm:human"],
+        aliases: ["local:human_dm", "wechat:dm:human"],
       },
     ],
   });

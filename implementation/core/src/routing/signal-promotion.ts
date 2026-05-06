@@ -37,7 +37,9 @@ function hasHumanDecisionHint(reason: string): boolean {
     "human decision",
     "human approval",
     "project_owner",
+    "project owner",
     "coordinator-agent",
+    "coordinator agent",
     "takeover",
   ].some((keyword) => reason.includes(keyword));
 }

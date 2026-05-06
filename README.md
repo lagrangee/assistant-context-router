@@ -216,6 +216,6 @@ questions are:
 
 ## Upstream Research Context
 
-The project started from earlier assistant-routing research under the broader project owner
-workspace. That research is useful historical context, but this repo's current truth
+The project started from earlier assistant-routing research in a broader workspace.
+That research is useful historical context, but this repo's current truth
 is the implementation, active plan docs, and validation fixtures in this repository.

@@ -179,7 +179,7 @@ main_sessions:
   - binding_id: main-session
     runtime_kind: openclaw
     canonical_session_key: agent:main:main
-    aliases: wechat:dm:human
+    aliases: local:human_dm, wechat:dm:human
 ```
 
 用途：

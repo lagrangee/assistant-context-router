@@ -310,7 +310,7 @@ test("business notification delivery adapter falls back from rejected wechat dir
           binding_id: "human-dm-session",
           runtime_kind: "openclaw",
           canonical_session_key: "agent:main:main",
-          aliases: ["wechat:dm:human"],
+          aliases: ["local:human_dm", "wechat:dm:human"],
         },
       ],
       channel_targets: [
@@ -393,7 +393,7 @@ test("business notification delivery adapter can route configured wechat DM via 
           binding_id: "human-dm",
           runtime_kind: "openclaw",
           canonical_session_key: "main:human",
-          aliases: ["wechat:dm:human"],
+          aliases: ["local:human_dm", "wechat:dm:human"],
         },
       ],
     },

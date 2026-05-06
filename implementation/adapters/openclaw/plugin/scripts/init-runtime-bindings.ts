@@ -26,7 +26,7 @@ function usage(): string {
     "- binding id: main-session",
     "- runtime kind: openclaw",
     "- canonical session key: agent:main:main",
-    "- aliases: wechat:dm:human",
+    "- aliases: local:human_dm, wechat:dm:human",
   ].join("\n");
 }
 
@@ -48,7 +48,7 @@ function parseArgs(argv = process.argv.slice(2)): ParsedArgs {
   let bindingId = "main-session";
   let runtimeKind = "openclaw";
   let canonicalSessionKey = "agent:main:main";
-  const aliases = new Set<string>(["wechat:dm:human"]);
+  const aliases = new Set<string>(["local:human_dm", "wechat:dm:human"]);
 
   for (let index = 0; index < argv.length; ) {
     const token = argv[index];
