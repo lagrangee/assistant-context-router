@@ -20,6 +20,7 @@
 - 保留并升级现有 `inbox-capture-plugin`
 - 保持 `memory/inbox` 现有效果不退化
 - 为 doc-governance 新增 transcript builder / registry resolver / drift linter
+- 对 `OpenSpec` / `Spec Kit` 这类 SDD 工具保持 application-layer adoption stance：可用于 change planning，不替代 runtime provenance substrate
 
 一句话说：
 
@@ -28,6 +29,34 @@ reuse architecture pattern
 > preserve current inbox archive output
 > add new doc-governance-specific builders and validators
 ```
+
+## Relationship to external SDD tools
+当前判断是：`OpenSpec` / `Spec Kit` 与本 runtime architecture 有部分重叠，但不是同一层工具。
+
+它们更擅长：
+
+- 将 feature / change 描述变成 proposal、spec、design、tasks
+- 在编码前对齐 human 与 AI 的实现意图
+- 把 implementation plan 与 repo 中的 spec artifact 关联起来
+- 支持 agent 根据 spec 和 task list 执行
+
+它们不直接覆盖本方案正在解决的运行时问题：
+
+- runtime conversation capture
+- canonical event spool
+- transcript archive object
+- `event -> project_id` routing
+- raw transcript / derived note / canonical host 的 provenance 链
+- registry-driven authority discovery
+- header / registry drift linting
+- 多 agent runtime 的 ingest adapter 分层
+
+因此当前 stance 是：
+
+- 不把外部 SDD 工具作为 doc-governance 的替代品
+- 可以把外部 SDD 工具作为 implementation planning / change-spec layer 的候选应用
+- 若要试点，应选择一个具体 active change，例如 `S1 OpenClaw capture compatibility baseline`
+- 试点目标应是验证它能否减少 proposal / task / implementation drift，而不是让它接管 transcript archive 或 registry authority
 
 ## Reuse decision
 当前建议把现有 `inbox-archiving` 链路拆成“可复用的模式”和“不能直接复用的最终对象”两部分。

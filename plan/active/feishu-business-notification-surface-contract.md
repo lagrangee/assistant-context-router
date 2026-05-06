@@ -304,6 +304,9 @@ Feishu 消息只是：
 这意味着：
 - 同一 notification 对同一 target 不应重复发送
 - 若一个 notification 需要发多个 target，那是多个 delivery attempt
+- runtime sender 可以把内部 delivery key 派生成 transport-safe idempotency key
+  - 当前 `lark-cli im` 路径使用稳定短 hash
+  - 不直接把包含 `| / :` 等字符的 raw `delivery_id` 透传给 Feishu OpenAPI
 
 ### Relationship to core record
 `notification_id` 本身继续由 ACR record 保持稳定；Feishu delivery 不应自造另一套 notification truth id。
@@ -324,6 +327,13 @@ Feishu 消息只是：
 原因：
 - 通知投递失败 ≠ governance escalation
 - 否则会把 transport failure 和 business significance 混为一谈
+
+补充：
+- 对 `completion_notify_mode = dm_on_completion_boundary` 驱动的 WeChat DM business notification，当前 delivery policy 是：
+  - 先尝试配置化 WeChat direct channel target
+  - 若 direct channel 明确失败，例如 provider 返回 `sendMessage ret=-2`
+  - 再 fallback 到已配置的 OpenClaw main session delivery
+- 这个 fallback 只属于 business notification delivery audit，不创建 governance truth
 
 ### 3. Persistent failure
 若未来存在明确的 delivery retry / reconcile 机制：
@@ -416,7 +426,15 @@ business notification 第一刀不要求：
 - `lark-cli im +messages-send`
 - `lark-cli im +messages-reply`
 - 默认 `--as bot`
-- 以 delivery id 作为 idempotency key
+- 以稳定短 hash 作为 `lark-cli im` idempotency key
+  - hash 来源仍是 delivery id
+  - 但不直接透传 raw delivery id，避免 Feishu OpenAPI field validation failure
+
+当前 completion-boundary WeChat DM sender 采用：
+- runtime `channel_targets` 解析 `local:human_dm`
+- 先走 `openclaw-direct-message` direct channel
+- direct channel 失败时，fallback 到 `runtimeBindings.main_sessions` 解析出的 OpenClaw main session
+- `/project --notifications` 展示的是 delivery mirror / outbox 状态，历史 failed record 不会被自动改写
 
 这符合当前 contract：
 - 使用 bot identity
@@ -425,18 +443,23 @@ business notification 第一刀不要求：
 
 ### 当前验证状态
 - auto-validation 已完成：
-  - core / plugin 全量 tests 当前全绿：`170/170`
+  - business notification adapter regression 已覆盖 Feishu IM idempotency key、WeChat direct channel、WeChat direct failure、以及 WeChat session fallback
+  - `llm_output completion boundary` regression 已覆盖：agent-output complete boundary -> writeback policy -> business notification -> WeChat direct failure -> OpenClaw session fallback
 - 当前已验证：
   - deliverable target 会生成 `lark-cli im` sender plan
   - unsupported / missing target 会稳定落成 `record_only`
   - `/project --notifications` 能正确区分 `pending` 与 `record_only`
-- 当前尚未验证：
-  - 真实 Feishu business/work chat 或 thread 的 live delivery
+  - `completion_notify_mode = dm_on_completion_boundary` 的 completion-boundary WeChat DM 已完成 live validation
+- 当前仍需按需单独验证：
+  - 真实 Feishu business/work chat 或 thread 的 business-notification live delivery
 
 ### 当前 interruption point
-这条线当前的自然下一步是：
-1. 用真实 Feishu ingress traffic 跑一次 live `Business Notification` IM delivery
-2. 再把主线推进到 `proj-assistant-context-router` self-hosted real usage
+这条线当前已不再阻塞 `proj-assistant-context-router` self-hosted real usage。
+
+后续若继续扩展，应优先围绕：
+1. Feishu business/work chat 的 live delivery regression
+2. notification delivery audit / reconcile 的最小 inspect 能力
+3. project-owned business notification binding
 
 ## Recommended follow-ups
 在这份 contract 之后，最自然的后续讨论顺序是：

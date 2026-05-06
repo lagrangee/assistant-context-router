@@ -724,19 +724,78 @@ Gate 5 validation prep：
     - [validation/service-results.json](<repo-root>/validation/service-results.json:1)
 - 当前仍保持克制：
   - 只接受显式 row anchor，不做 `task_id / resource_key` 推断
-  - 终态仍不做 ACR 自主收口
+  - 不做无 policy / 无显式 action 的终态自主收口
   - 但 `review_resolution` 已支持 Human 决策驱动的终态/回退对齐
+  - `complete` 也已进入 runtime：
+    - `manual_acceptance -> Reviewing`
+    - `agent_can_finalize -> Done / Fixed`
+- 当前 live Base workflow 也已扩到 `Bugs`：
+  - `<bug-review-accepted-workflow-id>`
+    - `Bugs Reviewing -> Fixed => review_resolution / accepted`
+  - `<bug-review-rejected-workflow-id>`
+    - `Bugs Reviewing -> Todo => review_resolution / rejected`
+- 当前 self-hosted `Bug` validation row 已补齐：
+  - `<validation-bug-record-id-a>`
+    - `[ACR self-host] live validate bug manual 2026-04-23`
+  - `<validation-bug-record-id-b>`
+    - `[ACR self-host] live validate bug auto 2026-04-23`
+- 当前 Feishu 多维表格 work-surface 范式也已单独收敛为：
+  - [feishu-work-surface-operating-model.md](<repo-root>/plan/active/feishu-work-surface-operating-model.md:1)
+  - 核心新 truth：
+    - `Todo` 默认是 backlog，不是 dispatch signal
+    - `Todo -> Doing / Fixing` 才是 execution request
+    - `Reviewing -> Done / Fixed / Todo` 才是 acceptance resolution
+    - ACR 创建的 `Todo` 默认只是 suggestion/backlog，不自动自触发
+  - 当前 live Base 的 workflow 当前已扩到 `6` 条：
+    - `<task-dispatch-workflow-id>`
+      - `Tasks Todo -> Doing => dispatch`
+    - `<bug-dispatch-workflow-id>`
+      - `Bugs Todo -> Fixing => dispatch`
+    - `<task-review-accepted-workflow-id>`
+      - `Tasks Reviewing -> Done => review_resolution / accepted`
+    - `<task-review-rejected-workflow-id>`
+      - `Tasks Reviewing -> Todo => review_resolution / rejected`
+    - `<bug-review-accepted-workflow-id>`
+      - `Bugs Reviewing -> Fixed => review_resolution / accepted`
+    - `<bug-review-rejected-workflow-id>`
+      - `Bugs Reviewing -> Todo => review_resolution / rejected`
+  - 这 6 条当前都已收紧到“状态迁移触发”：
+    - 只有 `Todo -> Doing / Fixing`
+    - 或 `Reviewing -> target_status`
+    - 才会进入 automation_ingress
+- `start_mode / ACR启动方式` 也已进入独立 contract：
+  - [feishu-start-mode-contract.md](<repo-root>/plan/active/feishu-start-mode-contract.md:1)
+  - 当前推荐默认值：
+    - `manual_only`
+  - 当前实现进展：
+    - `task_bug_policy.defaults.start_mode` 已进入 runtime config parsing
+    - 但尚未直接改变 live Base workflow 行为
 
 下一步：
 - `proj-assistant-context-router` 的 self-hosted live anchor 当前已补齐：
   - `Projects` row: `<projects-row-record-id>`
   - validation `Task` row: `<validation-task-record-id>`
+- `Bugs` 的 live validate 当前也已具备前置条件：
+  - workflow 已启用
+  - validation bug row 已创建
 - 真实 `dispatch group -> Task row` 的 self-hosted live validate 当前已通过：
   - `automation-ingress` 群回执：`Accepted dispatch for proj-assistant-context-router`
   - validation `Task` row `<validation-task-record-id>` 已进入 `Doing / EXECUTE / in_progress`
-- 下一步转为：
-  - 继续扩第二种真实工作流验证（优先 `review` / `agent-coordination`）
-  - 再讨论是否需要更独立的 Feishu ingress adapter
+- 当前新增的 runtime adapter 修复已落地并通过回归：
+  - observer 默认直接使用 Human 本机已 auth 的 `~/.lark-cli/config.json`
+  - 显式传入 env 时不再把整份 `process.env` merge 回 child-process
+  - child-process 当前只带最小白名单 env：
+    - `HOME`
+    - `USER`
+    - `LOGNAME`
+    - `SHELL`
+    - `PATH`
+    - `LANG`
+    - `LC_ALL`
+    - `TMPDIR`
+- 对应 live validate 已通过：
+  - `Task: Todo -> Doing => dispatch` 现在会自动补齐 `current_step = EXECUTE`
+  - `step_result = in_progress`
 - 第一批已真实读取：
   - `ACR验收模式`
   - `ACR完成提醒`
@@ -744,6 +803,8 @@ Gate 5 validation prep：
   - `ACR开始执行时间`
   - `current_step / step_result / next_action / last_event_at`
   - `执行摘要`（Task）
+  - `修复方式`（Bug）
+  - `修复结果`（Bug complete 且显式 `fix_result`）
   - `状态` 的非终态推进
 - 当前新增的第一条 human-resolution writeback 已实现并有测试覆盖：
   - `review_resolution / accepted`
@@ -756,7 +817,78 @@ Gate 5 validation prep：
     - `current_step = REPLAN`
     - `step_result = rejected`
   - 对 `Done / Fixed` 的 Human 先手编辑不再被 terminal noop 吞掉
-- `实际完成时间`、`修复结果`、completion-boundary notify 继续后置到后续 policy-gated writeback
+- 当前新增的第一条 policy-gated completion writeback 也已实现并有测试覆盖：
+  - `complete / manual_acceptance`
+    - Task/Bug -> `Reviewing`
+    - `current_step = REVIEW_WAIT`
+    - `step_result = need_review`
+  - `complete / agent_can_finalize`
+    - Task -> `Done`
+    - Bug -> `Fixed`
+    - `current_step = COMPLETE`
+    - `step_result = accepted`
+- `实际完成时间`、completion-boundary notify 继续后置到后续 policy-gated writeback
+- `修复结果` 当前只由 Bug `complete` 的 explicit `fix_result` 写入，不再用 `Need review` 表达验收状态
+
+### Cut 8E — Semantic execution bridge first slice
+状态：`implemented + auto-validated (main-session mediated + boundary capture first slice)`
+
+目标：
+- 把当前 `validation_fixture` placeholder 升级成真实语义执行桥
+- 让 `dispatch` 不再只按 `action_name` 命中固定结果，而是能基于 `Task / Bug` row 的真实内容进入执行
+
+本轮已完成：
+- decision:
+  - [semantic-execution-bridge-contract.md](<repo-root>/plan/active/semantic-execution-bridge-contract.md:1)
+- implementation:
+  - core `ServiceResult.work_surface_action`
+  - Feishu semantic bridge adapter `feishu_task_bug_semantic`
+  - `Task/Bug writeback` 对显式 `work_surface_action` 的承接
+  - OpenClaw plugin 默认注册该 bridge runtime kind
+  - OpenClaw main-session mediated executor first slice
+    - `dispatch -> trusted system event -> queued`
+    - `dispatch -> pending_semantic_execution`
+    - `dispatch -> requestHeartbeatNow` when available, without waiting for main-session heartbeat/model execution
+    - `complete -> work_surface_action: complete`
+    - `complete` without concrete `summary` -> `blocked / needs_escalation`
+    - `review/review_request/blocked -> review/block boundary`
+  - OpenClaw `llm_output` semantic boundary capture
+    - strict `[ACR_AUTOMATION]...[/ACR_AUTOMATION]` wrapper only
+    - only when matching `pending_semantic_execution` exists on the main session
+    - routes captured `complete / review / review_request / blocked` through the existing service/writeback chain
+- validation:
+  - targeted semantic bridge + writeback tests passed
+  - targeted semantic executor tests passed
+  - targeted semantic boundary output tests passed
+  - full plugin suite `212/212` passed
+  - live preflight passed:
+    - Feishu Base table list readable via bot identity
+    - `Tasks / Bugs` field list readable
+    - runtime binding target `agent:main:main` present
+- 当前正式钉住：
+  - 当前已打通的是 `work surface closure`，不是 `semantic execution closure`
+  - `dispatch -> Doing / Fixing` 之后，不会自动进入 `Reviewing / Done`
+  - 只有显式 `complete` 才会再交给 `acceptance_mode`
+  - 当前 live router 已不再使用 `validation_fixture`
+  - 当前 `dispatch` 会读取真实 `Task / Bug` row 并投递 main-session execution request
+  - 当前 `dispatch` 不应等待 main-session execution 完成；ACK / `EXECUTE in_progress` 必须和后续 agent completion 解耦
+  - semantic bridge 仍不会在 `dispatch` 时伪造完成，真实完成必须由 agent 后续显式产出
+  - complete boundary 不能只复制 schema 或只带 record id；必须带 concrete `summary`，并在 prompt contract 中要求 `evidence`
+  - 真实完成不再需要 project owner 手工复制；agent 在 assistant output 中产出 boundary block 后由 `llm_output` 自动捕获
+
+结论：
+- 当前 `8D` 已经把 work-surface、policy、acceptance 回流链路打通
+- `8E` 才是从“可演练”进入“可真实自运转”的关键切口
+
+下一步：
+- live `router.yaml` 已切到 `feishu_task_bug_semantic`
+  - target: `agent:main:main`
+- 下一刀是重启后的 Human live acceptance：
+  - 触发 `Tasks Todo -> Doing` 或 `Bugs Todo -> Fixing`
+  - 验证 dispatch 群出现 semantic queued 回执
+  - 验证 main session 收到含 card context 的 semantic execution request
+  - 验证 agent-output boundary 被自动捕获并推进 card 到 `Reviewing` 或 `Done / Fixed`
+- 暂不引入大而全 planner / multi-runtime 抽象
 
 ### Cut 2A — `route_resolution + trace + safe_fail`
 状态：`implemented + auto-validated`

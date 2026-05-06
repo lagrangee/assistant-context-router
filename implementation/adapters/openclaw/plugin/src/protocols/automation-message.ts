@@ -14,6 +14,29 @@ function pickString(...values: unknown[]): string | null {
 const OPEN_MARKER = "[ACR_AUTOMATION]";
 const CLOSE_MARKER = "[/ACR_AUTOMATION]";
 
+function normalizeAutomationJsonCandidate(value: string): string {
+  return value
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u200B-\u200D\u2060]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00A0/g, " ")
+    .trim();
+}
+
+function parseAutomationJson(value: string): Record<string, unknown> | null {
+  const normalized = normalizeAutomationJsonCandidate(value);
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(normalized);
+    return asRecord(parsed);
+  } catch {
+    return null;
+  }
+}
+
 export interface ParsedAutomationMessage {
   matched: boolean;
   event: Record<string, unknown> | null;
@@ -98,10 +121,8 @@ export function parseStructuredAutomationMessage(input: {
       };
     }
 
-    let parsedBare: unknown;
-    try {
-      parsedBare = JSON.parse(text);
-    } catch {
+    const bareRecord = parseAutomationJson(text);
+    if (!bareRecord) {
       return {
         matched: false,
         event: null,
@@ -109,9 +130,7 @@ export function parseStructuredAutomationMessage(input: {
         match_source: null,
       };
     }
-
-    const bareRecord = asRecord(parsedBare);
-    if (!bareRecord || !looksLikeAutomationEnvelope(bareRecord)) {
+    if (!looksLikeAutomationEnvelope(bareRecord)) {
       return {
         matched: false,
         event: null,
@@ -154,24 +173,12 @@ export function parseStructuredAutomationMessage(input: {
     };
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(inner);
-  } catch {
-    return {
-      matched: true,
-      event: null,
-      error: "invalid_protocol_json",
-      match_source: "wrapper",
-    };
-  }
-
-  const parsedRecord = asRecord(parsed);
+  const parsedRecord = parseAutomationJson(inner);
   if (!parsedRecord) {
     return {
       matched: true,
       event: null,
-      error: "invalid_protocol_object",
+      error: "invalid_protocol_json",
       match_source: "wrapper",
     };
   }

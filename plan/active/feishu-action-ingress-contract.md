@@ -53,6 +53,92 @@
 - 当前不需要立刻实现额外的 `dispatch ingress bridge`
 - 后续只有在更复杂的 Feishu transport / callback / multi-surface 场景下，才需要再引入独立 ingress adapter
 
+### Workflow message normalization finding
+随后在 live Base workflow 回流验证中，`invalid_protocol_json` 的更准确 root cause 已被定位：
+
+- workflow 模板本身生成的 `[ACR_AUTOMATION]` 正文是合法 JSON
+- 但 Feishu Base workflow 送到 OpenClaw 的 ingress text，并不一定是原始正文：
+  - 有时会是简单的 content envelope：`{"text":"[ACR_AUTOMATION] ... [/ACR_AUTOMATION]"}`
+  - 更关键的是，当前 live failure 的真实形状是 **Feishu rich post wrapper**
+    - `body` 带有 `[message_id: ...]`
+    - 后面跟 `sender_open_id: {...post-json...}`
+    - 真正的 automation 文本藏在 rich post 的 `elements[].text`
+- 之前 ACR 在 `before_dispatch` 里直接把这类 host wrapper 当正文处理
+- 于是 parser 实际看到的是宿主包装层，而不是原始 `[ACR_AUTOMATION]` body
+- 最终就会误判成：
+  - `malformed automation message (invalid_protocol_json)`
+
+因此当前的正确修复不是继续扩大 parser 容忍度，而是：
+
+> 在 transport boundary 先解开已知 host text envelope，
+> 再把真正的 message text 交给 structured automation parser。
+
+当前 implementation 已完成两层处理：
+- `before_dispatch` 的 `resolveMessageText(...)`
+  - 会先识别并解开：
+    - `{"text":"..."}` 这类 host text envelope
+    - Feishu workflow rich post body wrapper
+      - `[message_id: ...]`
+      - `ou_xxx: {...post-json...}`
+      - `elements[].text`
+- structured parser 继续保留对宿主小噪音的最小归一化：
+  - 宿主元信息前缀
+  - `BOM / zero-width / NBSP / CRLF`
+
+对应 implementation tests 当前已覆盖：
+- host preamble
+- wrapper payload noise
+- Feishu text content envelope
+- Feishu workflow rich post body wrapper
+
+并保持全绿。
+
+### Extractor boundary
+当前 implementation 已把 transport-specific unwrap 进一步收口成一层明确的 ingress extractor boundary：
+
+- `before_dispatch`
+  - 不再直接内联 Feishu-specific wrapper 逻辑
+- `protocols/ingress-text.ts`
+  - 承接 source-specific text extraction / unwrap
+  - 当前内置的 extractor 仅覆盖：
+    - Feishu message-id prefix
+    - Feishu sender rich-post prelude
+    - simple `{"text":"..."}` envelope
+    - Feishu rich-post JSON wrapper
+
+这条边界的目的是：
+
+> 未来若接 Discord / Telegram / Slack，
+> 应新增 source-specific extractor，
+> 而不是继续把 wrapper 特判堆进 ACR core parser 或 plugin 入口主流程。
+
+### Sender policy finding
+当前 live 验证还暴露了一个 transport-level 约束：
+
+- 若 workflow 发送人是 `多维表格助手 / bot`
+- 而当前 OpenClaw 群设置只响应 Human 自己的消息
+- 则结构化 workflow 消息即使内容正确，也可能不会进入 ACR
+
+当前建议分成两层：
+
+- **短期可用策略**
+  - 若当前群设置尚未放通可信 automation sender
+  - 可以先使用 Human 自己作为 workflow sender
+  - 以确保 `automation_ingress` 真实可用
+
+- **长期推荐策略**
+  - 不应长期把 automation 伪装成 Human 本人
+  - 更稳的做法是把一个显式可信的 automation sender / bot 纳入 `automation_ingress` allow policy
+  - 让 provenance 保持清晰：
+    - Human action 仍是 Human
+    - Base workflow / bot automation 仍是 automation
+
+因此当前 contract 结论是：
+
+> `automation_ingress` 应允许“可信 automation sender”进入，
+> 但在 allow policy 尚未显式配置前，先采用能稳定工作的发送人策略；
+> 不把“必须由 Human 本人发送”写成 ACR core truth。
+
 ### Current binding conclusion
 当前进一步采纳一个更稳定的 surface taxonomy：
 
@@ -80,8 +166,8 @@
 ## Core decision
 当前建议的第一种 Feishu action ingress 是：
 
-> **Feishu IM message transport first**  
-> `card action` 可作为后续的人机工学增强层，  
+> **Feishu IM message transport first**
+> `card action` 可作为后续的人机工学增强层，
 > `Base table / form` 不作为第一种 workflow ingress。
 
 ## Why this is the first slice
@@ -228,6 +314,19 @@ message ingress 的优势是：
   - 它不是新的 `dispatch`
   - 但它依然属于外部 structured input，因此应进入 `automation_ingress`
   - 不应误送进 `agent_coordination`
+
+当前 live Base 也已启用 `Tasks` 的两条 workflow，作为 `automation_ingress` 的第一个 Base automation source：
+- `<task-review-accepted-workflow-id>`
+  - `Tasks Reviewing -> Done`
+  - 发送 `review_resolution / accepted`
+- `<task-review-rejected-workflow-id>`
+  - `Tasks Reviewing -> Todo`
+  - 发送 `review_resolution / rejected`
+
+当前仍未扩到：
+- `Bugs`
+- 非 review-boundary 的任意状态编辑
+- 其他 transport 的自动化入口
 
 ## Ingress object
 当前建议在 Feishu adapter 层先引入一个 adapter-local object：

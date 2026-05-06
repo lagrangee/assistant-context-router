@@ -10,6 +10,13 @@ export type RouteSource =
 
 export type WorkflowFamily = "general" | "dispatch" | "review";
 export type ServiceResultKind = "accepted" | "queued" | "rejected" | "needs_escalation";
+export type WorkSurfaceActionName =
+  | "dispatch"
+  | "review"
+  | "review_request"
+  | "review_resolution"
+  | "complete"
+  | "blocked";
 
 export type SourceType = "human" | "agent" | "automation";
 
@@ -94,6 +101,18 @@ export interface MainSessionBinding {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface RuntimeChannelTargetBinding {
+  binding_id: string;
+  channel_type: string;
+  target_kind: string;
+  target_ref: string;
+  delivery_mode: string;
+  aliases: string[];
+  runtime_channel_id?: string | null;
+  account_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface MainSessionResolution {
   binding: MainSessionBinding | null;
   canonical_session_key: string;
@@ -138,6 +157,7 @@ export interface RouteDecision {
 export interface ServiceResult {
   status: "ok" | "error" | "needs_escalation";
   result_kind?: ServiceResultKind | null;
+  work_surface_action?: WorkSurfaceActionName | null;
   summary?: string | null;
   reply_payload: string | null;
   needs_escalation: boolean;
@@ -214,9 +234,15 @@ export type TaskBugCompletionNotifyMode =
   | "dm_on_completion_boundary"
   | "no_dm_on_completion_boundary";
 
+export type TaskBugStartMode =
+  | "manual_only"
+  | "dispatch_on_create"
+  | "agent_may_claim";
+
 export interface TaskBugPolicyDefaults {
   acceptance_mode?: TaskBugAcceptanceMode | null;
   completion_notify_mode?: TaskBugCompletionNotifyMode | null;
+  start_mode?: TaskBugStartMode | null;
 }
 
 export interface TaskBugPolicyConfig {
@@ -232,6 +258,7 @@ export interface RouterConfig {
 
 export interface RuntimeBindingsConfig {
   main_sessions?: MainSessionBinding[];
+  channel_targets?: RuntimeChannelTargetBinding[];
 }
 
 export interface WorkflowSurfaceReplyTargetBinding {
@@ -406,6 +433,7 @@ export interface ProjectSessionEvent {
   service_result: {
     status: ServiceResult["status"];
     result_kind: ServiceResultKind | null;
+    work_surface_action: WorkSurfaceActionName | null;
     summary: string | null;
     reply_payload: string | null;
     needs_escalation: boolean;
@@ -473,6 +501,45 @@ export interface PendingSaveMode {
   debug_dry_run?: boolean;
 }
 
+export interface PendingSemanticExecution {
+  created_at: string;
+  project_id: string;
+  action_name: string;
+  workflow: WorkflowFamily | null;
+  trace_id: string | null;
+  task_record_id: string | null;
+  bug_record_id: string | null;
+  adapter_facts?: Record<string, unknown>;
+  execution_contexts?: PendingSemanticExecutionContext[];
+}
+
+export interface PendingSemanticExecutionContext {
+  kind: string;
+  record_id: string;
+  status: string | null;
+  headline: string | null;
+  project: string | null;
+  priority: string | null;
+  assignee: string | null;
+  acceptance_mode: string | null;
+  completion_notify_mode: string | null;
+  next_action: string | null;
+  business_fields: Record<string, string | null>;
+  work_surface_origin?: WorkSurfaceOrigin | null;
+}
+
+export interface WorkSurfaceOrigin {
+  source_system: string;
+  surface_kind: string | null;
+  adapter: string | null;
+  identity: string | null;
+  config_path: string | null;
+  base_ref: string | null;
+  table_id: string | null;
+  table_name: string | null;
+  record_id: string | null;
+}
+
 export interface CurrentProjectBinding {
   project_id: string;
   selected_at: string;
@@ -491,6 +558,7 @@ export interface SessionProjectState {
   last_route_trace: RouteTrace | null;
   pending_save_mode: PendingSaveMode | null;
   pending_save_draft: PendingSaveDraft | null;
+  pending_semantic_execution: PendingSemanticExecution | null;
 }
 
 export interface SessionProjectStatePatch {
@@ -503,6 +571,7 @@ export interface SessionProjectStatePatch {
   last_route_trace?: RouteTrace | null;
   pending_save_mode?: PendingSaveMode | null;
   pending_save_draft?: PendingSaveDraft | null;
+  pending_semantic_execution?: PendingSemanticExecution | null;
 }
 
 export interface ProjectContextPayload {

@@ -29,8 +29,11 @@ export function decideRoute(input: {
     !!envelope.action_name && !!input.availableServiceActions?.has(envelope.action_name);
   const preferredTarget = input.actionConfig?.target_kind;
   const requiresResolvedProject = input.actionConfig?.requires_resolved_project ?? true;
+  const isStructuredWorkflowSource =
+    envelope.source_type === "automation" ||
+    (envelope.source_type === "agent" && !!envelope.action_name);
 
-  if (envelope.source_type === "automation") {
+  if (isStructuredWorkflowSource) {
     if (requiresResolvedProject && resolvedProjectId === "unresolved") {
       return {
         target_kind: "safe_fail",

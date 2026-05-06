@@ -9,7 +9,10 @@ import type {
   RouteDecision,
   ServiceResult,
 } from "../types.ts";
-import { deriveProjectSessionSignalKind } from "./signal-promotion.ts";
+import {
+  deriveProjectSessionSignalKind,
+  type SignalPromotionPolicy,
+} from "./signal-promotion.ts";
 
 function sanitizeProjectId(projectId: string): string {
   return projectId.replace(/[^a-zA-Z0-9._-]+/g, "_");
@@ -36,6 +39,7 @@ export async function appendProjectSessionEvent(input: {
   dataDir?: string;
   serviceResult?: ServiceResult | null;
   deliveryResult?: ProjectSessionDeliveryResult | null;
+  signalPolicy?: SignalPromotionPolicy | null;
 }): Promise<string> {
   const filePath = projectSessionEventPath(input.projectId, input.dataDir);
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -48,6 +52,7 @@ export async function appendProjectSessionEvent(input: {
       envelope: input.envelope,
       deliveryResult: input.deliveryResult,
       serviceResult: input.serviceResult,
+      signalPolicy: input.signalPolicy,
     }),
     decision: {
       target_kind: input.decision.target_kind,
@@ -75,6 +80,7 @@ export async function appendProjectSessionEvent(input: {
       ? {
           status: input.serviceResult.status,
           result_kind: input.serviceResult.result_kind ?? null,
+          work_surface_action: input.serviceResult.work_surface_action ?? null,
           summary: input.serviceResult.summary ?? null,
           reply_payload: input.serviceResult.reply_payload,
           needs_escalation: input.serviceResult.needs_escalation,

@@ -20,6 +20,7 @@
 - [feishu-business-notification-surface-contract.md](<repo-root>/plan/active/feishu-business-notification-surface-contract.md:1)
 - [feishu-escalation-surface-contract.md](<repo-root>/plan/active/feishu-escalation-surface-contract.md:1)
 - [feishu-task-bug-ownership-acceptance-contract.md](<repo-root>/plan/active/feishu-task-bug-ownership-acceptance-contract.md:1)
+- [semantic-execution-bridge-contract.md](<repo-root>/plan/active/semantic-execution-bridge-contract.md:1)
 - [orchestrator-acr-integration-contract-candidate.md](<repo-root>/plan/candidates/orchestrator-acr-integration-contract-candidate.md:1)
 - [task-run-event-visibility-candidate.md](<repo-root>/plan/candidates/task-run-event-visibility-candidate.md:1)
 - [external-review-round4-step2-adjudication-note.md](<repo-root>/plan/candidates/external-review-round4-step2-adjudication-note.md:1)
@@ -328,11 +329,11 @@ Step 2 的目标不是补齐所有层，而是打通这一条最小闭环：
     - `completion_notify_mode = no_dm_on_completion_boundary`
   - `AI 任务风险判断` 当前不进入 ACR writeback contract
   - `resource_key` 当前冻结，不应作为第一刀幂等键或 truth anchor
-  - 当前 `Task/Bug writeback first slice` 也已 implemented + auto-validated：
-    - hook 点位于真实 `service path`
-    - 只接受显式 row anchor：
-      - `task_record_id / taskRecordId`
-      - `bug_record_id / bugRecordId`
+    - 当前 `Task/Bug writeback first slice` 也已 implemented + auto-validated：
+      - hook 点位于真实 `service path`
+      - 只接受显式 row anchor：
+        - `task_record_id / taskRecordId`
+        - `bug_record_id / bugRecordId`
     - project default 当前已真实从 project-owned `router.yaml` 读取：
       - `task_bug_policy.defaults.acceptance_mode`
       - `task_bug_policy.defaults.completion_notify_mode`
@@ -343,11 +344,14 @@ Step 2 的目标不是补齐所有层，而是打通这一条最小闭环：
       - `last_event_at`
       - `ACR开始执行时间`
       - `执行摘要`（Task）
+      - `修复方式`（Bug）
+      - `修复结果`（Bug complete 且显式 `fix_result`）
       - `状态` 的非终态推进：`Todo -> Doing/Fixing -> Reviewing`
     - 当前 guardrails：
       - terminal row 默认 noop
       - 避免 `Reviewing -> Doing/Fixing` 回退
-      - 不自动写 `Done / Fixed / 实际完成时间 / 修复结果`
+      - 不自动写 `实际完成时间`
+      - 不在缺少 explicit `fix_result` 时猜测 `修复结果`
     - 当前已完成一轮 live enum audit：
       - 已对齐：
         - `Task状态`
@@ -371,11 +375,69 @@ Step 2 的目标不是补齐所有层，而是打通这一条最小闭环：
       - `accepted -> Done / Fixed`
       - `rejected -> Todo`
       - 对 Human 先手改到 `Done / Fixed` 的 row 不再误触发 terminal noop
-    - implementation tests 当前全绿：`183/183`
+    - 当前已补上第一条 `complete` writeback：
+      - `manual_acceptance -> Reviewing / REVIEW_WAIT / need_review`
+      - `agent_can_finalize -> Done / Fixed / COMPLETE / accepted`
+    - 当前 live Base workflow 已从 `Tasks` 扩到 `Bugs`：
+      - `<bug-review-accepted-workflow-id>`
+        - `Bugs Reviewing -> Fixed => review_resolution / accepted`
+      - `<bug-review-rejected-workflow-id>`
+        - `Bugs Reviewing -> Todo => review_resolution / rejected`
+    - 当前 `proj-assistant-context-router` 也已新增两条 validation `Bug` row：
+      - `<validation-bug-record-id-a>`
+        - `[ACR self-host] live validate bug manual 2026-04-23`
+      - `<validation-bug-record-id-b>`
+        - `[ACR self-host] live validate bug auto 2026-04-23`
+    - implementation tests 当前全绿：`186/186`
+- `Feishu` 多维表格 work surface 的工作范式已单独收敛为 [feishu-work-surface-operating-model.md](<repo-root>/plan/active/feishu-work-surface-operating-model.md:1)，当前新采纳的 truth 是：
+  - `Todo` 默认是 backlog，不是 dispatch signal
+  - `Todo -> Doing / Fixing` 才是默认 execution request
+  - `Reviewing -> Done / Fixed / Todo` 才是默认 acceptance resolution
+  - ACR 可主动创建 `Todo`，但默认只作为 suggestion/backlog，不自动自触发
+  - 若未来要支持 “创建即调度 / 允许Agent接单”，应通过新的 policy surface 表达，而不是重定义 `Todo`
+  - 当前 live Base 的 4 条 `review_resolution` workflow 也已按此方向收紧：
+    - 必须由 `Reviewing` 迁移到目标状态才触发
+- `start_mode / ACR启动方式` 的最小 contract 已单独收敛为 [feishu-start-mode-contract.md](<repo-root>/plan/active/feishu-start-mode-contract.md:1)，当前已明确：
+  - project default 推荐落在 `router.yaml`
+    - `task_bug_policy.defaults.start_mode`
+  - 当前安全默认值：
+    - `manual_only`
+  - 未来的 row-level override 仅先停留在 proposal：
+    - `ACR启动方式`
+    - `继承默认 / 仅手动推进 / 创建即调度 / 允许Agent接单`
+  - runtime config parsing 当前已落地：
+    - `RouterConfig` 已能解析 `task_bug_policy.defaults.start_mode`
+    - `Task/Bug writeback` policy resolution 也已会透传 `start_mode`
+  - 当前尚未采纳：
+    - 直接基于 `start_mode` 改变 live Base 行为
+    - 直接新增 create-time dispatch workflow
 - `Escalation Surface` 的第一份落地 contract 已单独收敛为 [feishu-escalation-surface-contract.md](<repo-root>/plan/active/feishu-escalation-surface-contract.md:1)，当前已明确 first surface 选 `Feishu IM governance alert mirror`，只做 secondary visibility mirror，不让 Feishu 先成为 ack/resolve host
 - 跨 channel 的全局 default `governance target` 当前先定为 `WeChat DM`
 - 但这必须走显式 config binding，不得 hardcode 在 runtime / adapter 代码里；未来 project-owned override 再覆盖
 - `Feishu` 相关 config-like 值的第一份宿主 contract 已单独收敛为 [feishu-adapter-config-host-contract.md](<repo-root>/plan/active/feishu-adapter-config-host-contract.md:1)，当前已明确 global runtime binding / project-owned override 的两层模型，以及最小迁移顺序
+  - 当前新增一条 live runtime truth：
+    - OpenClaw runtime 下依赖 `lark-cli` 的 adapter / observer 不能假设宿主 env 完整
+    - 当前已在 `lark-cli` runner 侧补齐最小 env 白名单：
+      - `HOME`
+      - `USER`
+      - `LOGNAME`
+      - `SHELL`
+      - `PATH`
+      - `LANG`
+      - `LC_ALL`
+      - `TMPDIR`
+  - 当前默认 auth source 已明确收口为 Human 本机已 auth 的 `~/.lark-cli/config.json`
+  - 对应的 `Task: Todo -> Doing => dispatch` writeback 已完成 live validate
+- 当前下一工作切口已进一步收敛为 [semantic-execution-bridge-contract.md](<repo-root>/plan/active/semantic-execution-bridge-contract.md:1)：
+  - 当前 `service_binding` 已从 `validation_fixture` 切到 `feishu_task_bug_semantic`
+  - `dispatch` 会基于 `task_record_id / bug_record_id` 读取真实 row
+  - bridge 会组装 execution context 并投递 main-session execution request
+  - bridge 会在目标 main session 写入 `pending_semantic_execution`
+  - 后续真实完成仍必须由 agent 显式产出 `complete / review_request / blocked`
+  - agent-output boundary 已由 OpenClaw `llm_output` hook 自动捕获，不再需要 project owner 手工复制 `complete`
+  - 下一步是重启后的 Human live acceptance：
+    - 验证 `dispatch -> semantic context system event -> main session`
+    - 验证 `agent-output boundary -> service/writeback -> Reviewing/Done`
 - 当前已新增第一版 runtime skeleton：
   - `work-surface base binding` 已接入默认 runtime path
   - `governance delivery binding` 已接入默认 escalation runtime path

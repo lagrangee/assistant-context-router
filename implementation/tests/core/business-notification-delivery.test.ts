@@ -135,6 +135,49 @@ test("business notification delivery plan falls back to workflow binding target 
   assert.equal(plan.seed.target_ref, "oc_dispatchlive123");
 });
 
+test("business notification delivery plan can target configured human DM", () => {
+  const plan = buildBusinessNotificationDeliveryPlan({
+    notification: {
+      ...baseNotification,
+      action_name: "complete",
+      workflow: "dispatch",
+    },
+    envelope: {
+      source_type: "agent",
+      channel_type: "unknown",
+      project_ref: "demo-acr",
+      resolved_project_id: "demo-acr",
+      action_name: "complete",
+      parameters: { task_record_id: "rec-task-1" },
+      reply_target: null,
+      trace_id: "trace-complete-1",
+      workflow: "dispatch",
+      raw_message_ref: "msg-complete-1",
+      text: null,
+    },
+    defaultReplyTarget: {
+      channel_type: "feishu",
+      target_kind: "channel",
+      target_id: "oc_dispatchlive123",
+      visibility: "system_facing",
+      reply_mode: "direct",
+    },
+    defaultDeliveryTarget: {
+      channel_type: "wechat",
+      target_kind: "dm",
+      target_ref: "local:human_dm",
+      delivery_mode: "direct",
+    },
+  });
+
+  assert.equal(plan.deliverable, true);
+  assert.equal(plan.error_reason, null);
+  assert.equal(plan.seed.channel_type, "wechat");
+  assert.equal(plan.seed.target_kind, "dm");
+  assert.equal(plan.seed.target_ref, "local:human_dm");
+  assert.equal(plan.seed.delivery_mode, "direct");
+});
+
 test("business notification delivery plan keeps record_only for unsupported workflow binding transport", () => {
   const plan = buildBusinessNotificationDeliveryPlan({
     notification: baseNotification,

@@ -7,6 +7,7 @@ import type {
   MainSessionBinding,
   MainSessionResolution,
   ProjectSessionBinding,
+  RuntimeChannelTargetBinding,
   RuntimeBindingsConfig,
   RouterConfig,
 } from "../../../../core/src/types.ts";
@@ -73,6 +74,52 @@ function normalizeMainSessionBinding(value: unknown): MainSessionBinding | null 
   };
 }
 
+function normalizeRuntimeChannelTargetBinding(value: unknown): RuntimeChannelTargetBinding | null {
+  const record = asRecord(value);
+  const bindingId =
+    typeof record?.binding_id === "string" && record.binding_id.trim()
+      ? record.binding_id.trim()
+      : null;
+  const channelType =
+    typeof record?.channel_type === "string" && record.channel_type.trim()
+      ? record.channel_type.trim()
+      : null;
+  const targetKind =
+    typeof record?.target_kind === "string" && record.target_kind.trim()
+      ? record.target_kind.trim()
+      : null;
+  const targetRef =
+    typeof record?.target_ref === "string" && record.target_ref.trim()
+      ? record.target_ref.trim()
+      : null;
+  const deliveryMode =
+    typeof record?.delivery_mode === "string" && record.delivery_mode.trim()
+      ? record.delivery_mode.trim()
+      : null;
+
+  if (!bindingId || !channelType || !targetKind || !targetRef || !deliveryMode) {
+    return null;
+  }
+
+  return {
+    binding_id: bindingId,
+    channel_type: channelType,
+    target_kind: targetKind,
+    target_ref: targetRef,
+    delivery_mode: deliveryMode,
+    aliases: asStringArray(record.aliases),
+    runtime_channel_id:
+      typeof record.runtime_channel_id === "string" && record.runtime_channel_id.trim()
+        ? record.runtime_channel_id.trim()
+        : null,
+    account_id:
+      typeof record.account_id === "string" && record.account_id.trim()
+        ? record.account_id.trim()
+        : null,
+    metadata: asRecord(record.metadata) ?? null,
+  };
+}
+
 export function normalizeProjectSessionBinding(value: unknown): ProjectSessionBinding | null {
   const record = asRecord(value);
   const runtimeKind =
@@ -109,10 +156,14 @@ export async function loadRuntimeBindingsConfig(
     const raw = await readFile(location.path, "utf8");
     const parsed = parseSimpleYaml<Record<string, unknown>>(raw);
     const mainSessionsRaw = Array.isArray(parsed.main_sessions) ? parsed.main_sessions : [];
+    const channelTargetsRaw = Array.isArray(parsed.channel_targets) ? parsed.channel_targets : [];
     return {
       main_sessions: mainSessionsRaw
         .map((item) => normalizeMainSessionBinding(item))
         .filter((item): item is MainSessionBinding => item !== null),
+      channel_targets: channelTargetsRaw
+        .map((item) => normalizeRuntimeChannelTargetBinding(item))
+        .filter((item): item is RuntimeChannelTargetBinding => item !== null),
     };
   } catch (error) {
     if (
@@ -186,6 +237,7 @@ export function resolveRuntimeBindingsLocation(input: {
 
 export function renderRuntimeBindingsConfigYaml(input: {
   bindings: MainSessionBinding[];
+  channelTargets?: RuntimeChannelTargetBinding[];
 }): string {
   const lines = ["main_sessions:"];
 
@@ -198,6 +250,26 @@ export function renderRuntimeBindingsConfigYaml(input: {
     );
   }
 
+  if (input.channelTargets?.length) {
+    lines.push("channel_targets:");
+    for (const binding of input.channelTargets) {
+      lines.push(
+        `  - binding_id: ${binding.binding_id}`,
+        `    channel_type: ${binding.channel_type}`,
+        `    target_kind: ${binding.target_kind}`,
+        `    target_ref: ${binding.target_ref}`,
+        `    delivery_mode: ${binding.delivery_mode}`,
+        `    aliases: ${binding.aliases.join(", ")}`,
+      );
+      if (binding.runtime_channel_id) {
+        lines.push(`    runtime_channel_id: ${binding.runtime_channel_id}`);
+      }
+      if (binding.account_id) {
+        lines.push(`    account_id: ${binding.account_id}`);
+      }
+    }
+  }
+
   return `${lines.join("\n")}\n`;
 }
 
@@ -206,6 +278,7 @@ export async function writeRuntimeBindingsConfigFile(input: {
   configPath?: string | null;
   force?: boolean;
   bindings: MainSessionBinding[];
+  channelTargets?: RuntimeChannelTargetBinding[];
 }): Promise<string> {
   const configPath =
     asString(input.configPath) ??
@@ -238,7 +311,14 @@ export async function writeRuntimeBindingsConfigFile(input: {
   }
 
   await mkdir(path.dirname(configPath), { recursive: true });
-  await writeFile(configPath, renderRuntimeBindingsConfigYaml({ bindings: input.bindings }), "utf8");
+  await writeFile(
+    configPath,
+    renderRuntimeBindingsConfigYaml({
+      bindings: input.bindings,
+      channelTargets: input.channelTargets,
+    }),
+    "utf8",
+  );
   return configPath;
 }
 

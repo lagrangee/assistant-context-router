@@ -15,8 +15,15 @@ function stableId(prefix: string, parts: Array<string | null | undefined>): stri
   return `${prefix}:${base || "record"}`;
 }
 
-type DeliveryMode = "channel_message" | "reply" | "thread_reply";
-type ResolvedTargetKind = "chat" | "user" | "message";
+type DeliveryMode = "channel_message" | "reply" | "thread_reply" | "direct";
+type ResolvedTargetKind = "chat" | "user" | "message" | "dm";
+
+export interface BusinessNotificationDeliveryTargetBinding {
+  channel_type: string;
+  target_kind: string;
+  target_ref: string;
+  delivery_mode: string;
+}
 
 interface ResolvedTransportReplyTarget {
   channel_type: string;
@@ -198,6 +205,59 @@ function resolveFeishuTargetFromReplyTarget(input: {
   };
 }
 
+function resolveTargetFromDeliveryBinding(input: {
+  binding: BusinessNotificationDeliveryTargetBinding | null | undefined;
+}): { target: ResolvedTransportReplyTarget | null; error_reason: string | null } {
+  const binding = input.binding;
+  if (!binding) {
+    return {
+      target: null,
+      error_reason: "record_only:no_delivery_target",
+    };
+  }
+
+  if (
+    binding.channel_type === "feishu" &&
+    (binding.target_kind === "chat" ||
+      binding.target_kind === "user" ||
+      binding.target_kind === "message") &&
+    (binding.delivery_mode === "channel_message" ||
+      binding.delivery_mode === "reply" ||
+      binding.delivery_mode === "thread_reply")
+  ) {
+    return {
+      target: {
+        channel_type: "feishu",
+        target_kind: binding.target_kind,
+        target_ref: binding.target_ref,
+        delivery_mode: binding.delivery_mode,
+      },
+      error_reason: null,
+    };
+  }
+
+  if (
+    binding.channel_type === "wechat" &&
+    binding.target_kind === "dm" &&
+    binding.delivery_mode === "direct"
+  ) {
+    return {
+      target: {
+        channel_type: "wechat",
+        target_kind: "dm",
+        target_ref: binding.target_ref,
+        delivery_mode: "direct",
+      },
+      error_reason: null,
+    };
+  }
+
+  return {
+    target: null,
+    error_reason: `record_only:unsupported_delivery_target:${binding.channel_type}:${binding.target_kind}:${binding.delivery_mode}`,
+  };
+}
+
 export function deriveBusinessNotificationDeliveryDedupKey(input: {
   notificationId: string;
   targetRef?: string | null;
@@ -214,9 +274,15 @@ export function buildBusinessNotificationDeliveryPlan(input: {
   notification: BusinessNotificationRecord;
   envelope: NormalizedEnvelope;
   defaultReplyTarget?: WorkflowSurfaceReplyTargetBinding | null;
+  defaultDeliveryTarget?: BusinessNotificationDeliveryTargetBinding | null;
 }): BusinessNotificationDeliveryPlan {
+  const deliveryTarget = resolveTargetFromDeliveryBinding({
+    binding: input.defaultDeliveryTarget,
+  });
   const candidate =
-    input.envelope.reply_target
+    input.defaultDeliveryTarget
+      ? null
+      : input.envelope.reply_target
       ? {
           channelType: input.envelope.channel_type,
           replyTarget: input.envelope.reply_target,
@@ -234,7 +300,9 @@ export function buildBusinessNotificationDeliveryPlan(input: {
             missingTargetErrorReason: "record_only:no_delivery_target",
           };
 
-  const resolved = resolveFeishuTargetFromReplyTarget(candidate);
+  const resolved = input.defaultDeliveryTarget
+    ? deliveryTarget
+    : resolveFeishuTargetFromReplyTarget(candidate);
 
   return {
     deliverable: Boolean(resolved.target),
@@ -253,7 +321,8 @@ export function buildBusinessNotificationDeliveryPlan(input: {
       target_kind: resolved.target?.target_kind ?? null,
       target_ref:
         resolved.target?.target_ref ??
-        candidate.replyTarget?.target_id ??
+        input.defaultDeliveryTarget?.target_ref ??
+        candidate?.replyTarget?.target_id ??
         null,
       delivery_mode: resolved.target?.delivery_mode ?? null,
       rendered_message: renderBusinessNotificationMessage({

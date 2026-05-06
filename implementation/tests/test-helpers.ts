@@ -263,6 +263,16 @@ export async function writeRuntimeBindingsConfig(input: {
     canonical_session_key: string;
     aliases: string[];
   }>;
+  channelTargets?: Array<{
+    binding_id: string;
+    channel_type: string;
+    target_kind: string;
+    target_ref: string;
+    delivery_mode: string;
+    aliases: string[];
+    runtime_channel_id?: string | null;
+    account_id?: string | null;
+  }>;
 }): Promise<string> {
   const configPath = path.join(input.root, "runtime-bindings.yaml");
   const lines = ["main_sessions:"];
@@ -271,6 +281,23 @@ export async function writeRuntimeBindingsConfig(input: {
     lines.push(`    runtime_kind: ${binding.runtime_kind}`);
     lines.push(`    canonical_session_key: ${binding.canonical_session_key}`);
     lines.push(`    aliases: ${binding.aliases.join(", ")}`);
+  }
+  if (input.channelTargets?.length) {
+    lines.push("channel_targets:");
+    for (const binding of input.channelTargets) {
+      lines.push(`  - binding_id: ${binding.binding_id}`);
+      lines.push(`    channel_type: ${binding.channel_type}`);
+      lines.push(`    target_kind: ${binding.target_kind}`);
+      lines.push(`    target_ref: ${binding.target_ref}`);
+      lines.push(`    delivery_mode: ${binding.delivery_mode}`);
+      lines.push(`    aliases: ${binding.aliases.join(", ")}`);
+      if (binding.runtime_channel_id) {
+        lines.push(`    runtime_channel_id: ${binding.runtime_channel_id}`);
+      }
+      if (binding.account_id) {
+        lines.push(`    account_id: ${binding.account_id}`);
+      }
+    }
   }
   await writeFile(configPath, `${lines.join("\n")}\n`);
   return configPath;

@@ -176,6 +176,13 @@ raw transcript -> derived note -> canonical host
 - 多 runtime 采用各自 ingest adapter，而不是假设所有 agent tool 都有 plugin hook
 - event 必须能稳定路由到 `project_id`，且 candidate-only topic 不得被 resolver 伪装成 adopted truth
 
+### Relationship to external SDD tools
+- `OpenSpec` / `Spec Kit` 这类 SDD 工具与本方案有重叠，但不完全同层
+- 它们更适合承载 feature / change 级别的 proposal / spec / plan / tasks / implementation workflow
+- 本方案更关注跨 agent 的 source capture、provenance、authority discovery、loading discipline、doc lifecycle 与 runtime archive
+- 当前不建议用外部 SDD 工具替代 doc-governance；更合理的方向是把它们作为 implementation planning / change-spec layer 的候选应用层
+- 若后续要引入，应优先小范围试点 `OpenSpec` 或 `Spec Kit` 来承载某个 active implementation change，而不是迁移整套文档治理体系
+
 ## Child contract map
 
 ### Lifecycle contract

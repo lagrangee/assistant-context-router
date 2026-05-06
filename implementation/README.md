@@ -5,6 +5,12 @@ This directory contains the current implementation layout for the Assistant Cont
 Current structure:
 - `core/`
   - runtime-neutral ACR contracts and logic
+- `harness/`
+  - generic execution envelope, playbook registry/selection, context assembly, and boundary protocol
+- `domains/work-items/`
+  - vendor-neutral task / bug / card / ticket playbook semantics
+- `adapters/work-surfaces/feishu/`
+  - Feishu Base work-surface adapter utilities and Feishu navigation playbook
 - `adapters/openclaw/runtime/`
   - OpenClaw runtime adapter bridge
 - `adapters/openclaw/plugin/`
@@ -60,6 +66,11 @@ Step 2 skeleton now started with:
 - canonical `main session` binding via explicit `runtimeBindingsPath`, env override, or plugin-owned default discovery at `<dataDir>/assistant-context-router/runtime-bindings.yaml`
 - `project_session` binding plus runtime delivery through injected adapters
 - project-owned service bridge delivery through injected adapters
+- harness-layer semantic execution packaging through `ExecutionEnvelope`
+- harness playbook selection based on typed facts, not natural-language title parsing
+- Feishu Task/Bug semantic bridge producing work-surface origin facts and harness execution envelopes
+- OpenClaw semantic executor delivering harness-assembled agent context to the main session
+- boundary validation for agent-emitted `complete` / `review` / `blocked` results, including structured side-effect operations for external record mutations
 - Feishu adapter config host via explicit `feishuConfigPath` or plugin-owned default discovery at `<dataDir>/assistant-context-router/feishu-adapter.yaml`
 - governance delivery binding consumed by the default escalation path via an idempotent governance outbox
 - governance sender bridged through OpenClaw runtime system-event delivery to the resolved main-session target

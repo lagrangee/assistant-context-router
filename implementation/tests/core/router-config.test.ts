@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import { loadProjectRouterConfig, loadRouterConfig, mergeRouterConfigs } from "../../core/src/routing/config.ts";
 import { decideRoute } from "../../core/src/routing/decision.ts";
@@ -56,6 +57,7 @@ test("loadRouterConfig parses task_bug_policy defaults", async () => {
   defaults:
     acceptance_mode: agent_can_finalize
     completion_notify_mode: dm_on_completion_boundary
+    start_mode: dispatch_on_create
 `,
   );
 
@@ -68,6 +70,7 @@ test("loadRouterConfig parses task_bug_policy defaults", async () => {
     config.task_bug_policy?.defaults?.completion_notify_mode,
     "dm_on_completion_boundary",
   );
+  assert.equal(config.task_bug_policy?.defaults?.start_mode, "dispatch_on_create");
 });
 
 test("decideRoute respects configured project_session target", () => {
@@ -115,6 +118,20 @@ test("loadRouterConfig parses demo-acr router manifest", async () => {
     config.project_session_binding?.target_ref,
     "agent:main:demo-acr",
   );
+});
+
+test("loadRouterConfig parses ACR self-host semantic router manifest", async () => {
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../..",
+  );
+  const config = await loadRouterConfig(path.join(repoRoot, "router.yaml"));
+
+  assert.equal(config.actions?.dispatch?.target_kind, "service");
+  assert.equal(config.actions?.complete?.target_kind, "service");
+  assert.equal(config.service_binding?.runtime_kind, "feishu_task_bug_semantic");
+  assert.equal(config.service_binding?.target_ref, "agent:main:main");
+  assert.equal(config.service_binding?.metadata?.executor, "openclaw_main_session_mediated");
 });
 
 test("plugin can load router config and route configured action to project lane", async () => {
@@ -221,6 +238,7 @@ task_bug_policy:
   defaults:
     acceptance_mode: manual_acceptance
     completion_notify_mode: no_dm_on_completion_boundary
+    start_mode: manual_only
 `,
   );
 
@@ -242,6 +260,7 @@ service_binding:
 task_bug_policy:
   defaults:
     acceptance_mode: agent_can_finalize
+    start_mode: agent_may_claim
 `,
   );
 
@@ -260,6 +279,7 @@ task_bug_policy:
     merged.task_bug_policy?.defaults?.completion_notify_mode,
     "no_dm_on_completion_boundary",
   );
+  assert.equal(merged.task_bug_policy?.defaults?.start_mode, "agent_may_claim");
 
   const envelope = normalizeIngressEvent({
     event: {

@@ -68,6 +68,50 @@
 - 可由本地 env + local config file 组合解析
 - 但解析后的结果应表现为统一的 binding object
 
+当前还补出了一条 runtime execution 约束：
+- 依赖 `lark-cli` 的 default adapter / observer
+  - 不应直接裸用运行进程继承到的稀疏 env
+  - 至少应先归一化：
+    - `HOME`
+    - `USER`
+    - `LOGNAME`
+    - `SHELL`
+
+原因：
+- 当前 live OpenClaw runtime 已暴露出一种真实失败模式：
+  - lane / snapshot / 本地 state 落盘都成功
+  - 但 `lark-cli base` / `lark-cli im` 因 runtime env 不完整而失败
+- 因此：
+  - adapter config host 不只影响 token / target / binding 的读取
+  - 也影响 adapter process 在 runtime 中能否稳定找到 CLI 配置宿主
+
+当前进一步确认的一条 live truth 是：
+- `lark-cli auth login` 仍然是独立 CLI 的标准认证路径。
+- runtime observer 的默认 auth source 应直接使用 Human 本机已 auth 的 `~/.lark-cli/config.json`。
+- runtime observer 的默认路径应直接复用 Human 本机已经可用的 `lark-cli local workspace`。
+
+因此当前已采纳并实现的最小修复是：
+- 当调用方已经显式提供 env 时，`buildNormalizedLarkCliEnv(...)` 只负责补全缺失字段，不再隐式继承整份 `process.env`。
+- runtime child-process 只带最小白名单 env：
+  - `HOME`
+  - `USER`
+  - `LOGNAME`
+  - `SHELL`
+  - `PATH`
+  - `LANG`
+  - `LC_ALL`
+  - `TMPDIR`
+- runtime env 归一化仍是必要条件，但它服务的是 Human 本机已经可用的 `lark-cli local workspace`，而不是额外 materialize 出另一套 observer 专用 workspace。
+
+当前这条修复已经完成 live validate：
+- Human 在宿主终端重新完成 `lark-cli auth login` 后，直接执行：
+  - `lark-cli config show`
+  - `lark-cli base +table-list --as bot`
+  - 都已恢复成功。
+- 在同一台机器上的真实 OpenClaw/TUI 中，`Task: Todo -> Doing => dispatch` 现在也已能自动补齐：
+  - `current_step = EXECUTE`
+  - `step_result = in_progress`
+
 当前已采纳的最小默认发现路径是：
 - 若未显式传 `feishuConfigPath`
 - 且未设置 `ACR_FEISHU_CONFIG_PATH`

@@ -14,18 +14,25 @@ actions:
     workflow: review
     requires_resolved_project: true
 
+  complete:
+    target_kind: service
+    workflow: dispatch
+    requires_resolved_project: true
+
   append_project_note:
     target_kind: project_session
     workflow: general
     requires_resolved_project: true
 
 service_binding:
-  runtime_kind: validation_fixture
-  target_ref: <repo-root>/validation/service-results.json
+  runtime_kind: feishu_task_bug_semantic
+  target_ref: agent:main:main
   metadata:
-    note: "Validation-only harness for ACR self-hosted task/bug writeback rehearsal."
+    executor: openclaw_main_session_mediated
+    note: "Self-hosted semantic execution bridge. Dispatch reads Feishu Task/Bug rows and queues a main-session execution request."
 
 task_bug_policy:
   defaults:
     acceptance_mode: manual_acceptance
     completion_notify_mode: no_dm_on_completion_boundary
+    start_mode: manual_only

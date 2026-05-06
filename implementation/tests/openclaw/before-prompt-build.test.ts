@@ -35,6 +35,138 @@ test("before_prompt_build injects project context into system prompt", async () 
   assert.match(String(result.prependSystemContext), /Update the project context loader/);
 });
 
+test("before_prompt_build injects pending semantic execution context as a generic work-surface request", async () => {
+  const workspace = await makeTempProjectWorkspace();
+  const store = createSessionProjectStore({ dataDir: workspace.dataDir });
+  await store.set("session:semantic-context", {
+    current_project_id: "proj-sample",
+    selected_via: "route",
+    selected_at: "2026-04-04T00:00:00.000Z",
+    current_workflow: "dispatch",
+    pending_semantic_execution: {
+      created_at: "2026-04-26T14:00:00.000Z",
+      project_id: "proj-sample",
+      action_name: "dispatch",
+      workflow: "dispatch",
+      trace_id: "trace-semantic-context-001",
+      task_record_id: "rec-task-semantic-context",
+      bug_record_id: null,
+      adapter_facts: {
+        work_surface_navigation_manifest: {
+          source: {
+            table_id: "tbl-tasks",
+            table_name: "Tasks",
+            kind: "task",
+            record_id: "rec-task-semantic-context",
+            headline: "Implement generalized context package",
+            status: "Doing",
+            project_relation_ids: ["rec-project-sample"],
+          },
+          tables: [
+            {
+              kind: "task",
+              table_id: "tbl-tasks",
+              table_name: "Tasks",
+              aliases: ["task", "todo", "doing", "pending"],
+              field_roles: {
+                title: "任务",
+                status: "状态",
+                project: "所属项目",
+              },
+            },
+            {
+              kind: "bug",
+              table_id: "tbl-bugs",
+              table_name: "Bugs",
+              aliases: ["bug", "issue", "fixing"],
+              field_roles: {
+                title: "描述",
+                status: "状态",
+                project: "所属项目",
+              },
+            },
+          ],
+          source_table_schema: {
+            fields: [
+              {
+                field_name: "状态",
+                field_id: "fld-status",
+                role: "status",
+                type: "select",
+                options: ["Todo", "Doing", "Pending", "Reviewing", "Done"],
+              },
+            ],
+          },
+          query_recipes: [
+            "Treat board labels such as Todo/Pending as status field values, not table names.",
+            "When a task references other work items, query the selected table by same project, title, and status.",
+          ],
+        },
+      },
+      execution_contexts: [
+        {
+          kind: "task",
+          record_id: "rec-task-semantic-context",
+          status: "Doing",
+          headline: "Implement generalized context package",
+          project: "proj-sample",
+          priority: "P1",
+          assignee: "Codex",
+          acceptance_mode: "manual_acceptance",
+          completion_notify_mode: "no_dm_on_completion_boundary",
+          next_action: "Use work-surface semantics instead of guessing",
+          business_fields: {
+            title: "Implement generalized context package",
+            dod: "Main session receives project plus work-surface execution semantics",
+            description: "Avoid hardcoded prompt handling for one Feishu use case",
+          },
+          work_surface_origin: {
+            source_system: "feishu_base",
+            surface_kind: "project_management",
+            adapter: "feishu_task_bug_semantic",
+            identity: "bot",
+            config_path: "/tmp/acr/feishu-adapter.yaml",
+            base_ref: "feishu_adapter_config",
+            table_id: "tbl-tasks",
+            table_name: "Tasks",
+            record_id: "rec-task-semantic-context",
+          },
+        },
+      ],
+    },
+  });
+
+  const hook = createBeforePromptBuildHook({
+    registryPath: workspace.registryPath,
+    store,
+    dataDir: workspace.dataDir,
+  });
+
+  const result = await hook({
+    sessionKey: "session:semantic-context",
+    systemPrompt: "Base system prompt.",
+    messages: [],
+  });
+
+  const injected = String(result.prependSystemContext);
+  assert.match(injected, /pending semantic execution/i);
+  assert.match(injected, /external work-surface semantic context/);
+  assert.match(injected, /project_root:/);
+  assert.match(injected, /work_surface_origin: feishu_base/);
+  assert.match(injected, /config_path: \/tmp\/acr\/feishu-adapter\.yaml/);
+  assert.match(injected, /Implement generalized context package/);
+  assert.match(injected, /work_surface_navigation_manifest/);
+  assert.match(injected, /query_recipes/);
+  assert.doesNotMatch(injected, /rec-related-semantic-context/);
+  assert.match(injected, /Pending/);
+  assert.match(injected, /Main session receives project plus work-surface execution semantics/);
+  assert.match(injected, /boundary_rule/);
+  assert.match(injected, /work_surface_operations/);
+  assert.match(injected, /missing_context/);
+  assert.equal(injected.includes("work_surface_origin_json:\n{"), false);
+  assert.equal(injected.length < 12000, true);
+});
+
 test("before_prompt_build safe-fails when stored project is unresolved", async () => {
   const workspace = await makeTempProjectWorkspace();
   const store = createSessionProjectStore({ dataDir: workspace.dataDir });

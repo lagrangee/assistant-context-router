@@ -96,11 +96,19 @@
 - `../plan/active/step2-validation-design.md`：Step 2 验证设计草稿（待按最新共识重构）
 - `router-config-guide.md`：Step 2 当前 router config / project manifest 说明
 
+## Implementation modules
+- `../implementation/core/`：project / routing / state / trace 等 runtime-neutral contract
+- `../implementation/harness/`：ACR harness layer，负责 execution envelope、context assembly、playbook registry/selection、boundary protocol
+- `../implementation/harness/playbooks/`：generic harness playbook，例如 `work-surface-execution` 与 `acr-boundary-protocol`
+- `../implementation/domains/work-items/`：task / bug / card / ticket 的 vendor-neutral domain playbook pack
+- `../implementation/adapters/work-surfaces/feishu/`：Feishu Base work-surface adapter 与 Feishu-specific navigation playbook
+- `../implementation/adapters/openclaw/`：OpenClaw plugin / runtime delivery / before-prompt 承载
+
 ## Progress / collaboration docs
 - `../execution/COLLAB.md`：当前协作对象（多 agent handoff / review / writeback 面）
 
 ## Meta parallel assets
-- `../meta/skill-draft/`：你和 OpenClaw agent (`coordinator-agent`) 后台并行维护的长期抽象资产（非项目执行面，默认不暴露给执行 agent）
+- `../meta/skill-draft/`：你和 OpenClaw agent (`coordinator-agent`) 后台并行维护的长期抽象资产（非项目执行面，默认不暴露给执行 agent）；已经进入 ACR harness runtime 的 playbook 不应继续停留在这里
 - `../meta/skill-draft/project-writeback/SKILL.md`：`project-writeback` 的 repo source draft；正式可运行版本安装在 `$CODEX_HOME/skills/project-writeback`，用于把当前 Codex thread 的关键结论回写到 truth docs
 
 ## Archive

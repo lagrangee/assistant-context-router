@@ -4,6 +4,7 @@ import type {
   ServiceResult,
   TaskBugAcceptanceMode,
   TaskBugCompletionNotifyMode,
+  TaskBugStartMode,
 } from "../../../core/src/types.ts";
 import {
   resolveFeishuWorkSurfaceBinding,
@@ -40,6 +41,7 @@ export interface FeishuBugFieldMap {
   acceptance_mode: string;
   completion_notify_mode: string;
   started_at: string;
+  fix_method: string;
   fix_result: string;
 }
 
@@ -61,8 +63,10 @@ export interface FeishuTaskBugWritebackAdapterConfig
 export interface ResolvedTaskBugPolicy {
   acceptance_mode: TaskBugAcceptanceMode;
   completion_notify_mode: TaskBugCompletionNotifyMode;
+  start_mode: TaskBugStartMode;
   acceptance_mode_source: "builtin_default" | "router_default" | "row_override";
   completion_notify_mode_source: "builtin_default" | "router_default" | "row_override";
+  start_mode_source: "builtin_default" | "router_default";
   row_acceptance_mode: "inherit" | TaskBugAcceptanceMode;
   row_completion_notify_mode: "inherit" | TaskBugCompletionNotifyMode;
 }
@@ -104,21 +108,30 @@ interface FeishuTaskBugTarget {
 }
 
 interface DerivedWritebackPatch {
-  phase: "in_progress" | "review_boundary" | "resolution_boundary" | "error";
+  phase:
+    | "in_progress"
+    | "review_boundary"
+    | "completion_boundary"
+    | "resolution_boundary"
+    | "error";
   status: string | null;
   current_step: string;
   step_result: string;
   next_action: string;
   summary: string | null;
+  execution_report?: string | null;
+  bug_fix_result?: "Fixed" | "Won't fix" | "Can't rep" | null;
   set_started_at_if_empty: boolean;
 }
 
 const BUILTIN_TASK_BUG_POLICY_DEFAULTS = {
   acceptance_mode: "manual_acceptance",
   completion_notify_mode: "no_dm_on_completion_boundary",
+  start_mode: "manual_only",
 } satisfies {
   acceptance_mode: TaskBugAcceptanceMode;
   completion_notify_mode: TaskBugCompletionNotifyMode;
+  start_mode: TaskBugStartMode;
 };
 
 const DEFAULT_FEISHU_TASK_BUG_TABLE_NAMES: FeishuTaskBugTableNames = {
@@ -147,6 +160,7 @@ const DEFAULT_FEISHU_BUG_FIELD_NAMES: FeishuBugFieldMap = {
   acceptance_mode: "ACR验收模式",
   completion_notify_mode: "ACR完成提醒",
   started_at: "ACR开始执行时间",
+  fix_method: "修复方式",
   fix_result: "修复结果",
 };
 
@@ -171,6 +185,7 @@ const BUG_REQUIRED_FIELDS: Array<keyof FeishuBugFieldMap> = [
   "acceptance_mode",
   "completion_notify_mode",
   "started_at",
+  "fix_method",
   "fix_result",
 ];
 
@@ -226,6 +241,25 @@ function truncateText(value: string | null, maxLength = 900): string | null {
     return null;
   }
   return value.length > maxLength ? value.slice(0, maxLength) : value;
+}
+
+function buildExecutionReport(input: {
+  summary: string | null;
+  evidence: string | null;
+}): string | null {
+  if (!input.summary && !input.evidence) {
+    return null;
+  }
+  if (!input.evidence || input.evidence === input.summary) {
+    return input.summary ?? input.evidence;
+  }
+  if (!input.summary) {
+    return input.evidence;
+  }
+  return truncateText(
+    [`执行结果：${input.summary}`, `验证证据：${input.evidence}`].join("\n\n"),
+    1800,
+  );
 }
 
 function indexFieldsByName(fields: LarkCliField[]): Record<string, LarkCliField> {
@@ -418,6 +452,62 @@ function normalizeReviewResolutionDecision(
   return null;
 }
 
+function normalizeBugFixResult(value: unknown): "Fixed" | "Won't fix" | "Can't rep" | null {
+  const text = normalizeTextValue(value)
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) {
+    return null;
+  }
+
+  if (["fixed", "fix", "修复", "已修复"].includes(text)) {
+    return "Fixed";
+  }
+  if (
+    [
+      "won't fix",
+      "wont fix",
+      "won t fix",
+      "will not fix",
+      "not fix",
+      "no fix",
+      "不修复",
+      "无需修复",
+    ].includes(text)
+  ) {
+    return "Won't fix";
+  }
+  if (
+    [
+      "can't rep",
+      "cant rep",
+      "can t rep",
+      "can't reproduce",
+      "cant reproduce",
+      "can t reproduce",
+      "cannot reproduce",
+      "can not reproduce",
+      "not reproduced",
+      "无法复现",
+      "不能复现",
+    ].includes(text)
+  ) {
+    return "Can't rep";
+  }
+
+  return null;
+}
+
+function resolveEffectiveWritebackAction(input: {
+  envelope: NormalizedEnvelope;
+  serviceResult: ServiceResult;
+}): string | null {
+  return input.serviceResult.work_surface_action ?? input.envelope.action_name;
+}
+
 function resolveTargets(parameters: Record<string, unknown> | null): FeishuTaskBugTarget[] {
   if (!parameters) {
     return [];
@@ -454,12 +544,19 @@ function resolveTaskBugPolicy(input: {
   const defaultCompletionNotify =
     input.routerConfig.task_bug_policy?.defaults?.completion_notify_mode ??
     BUILTIN_TASK_BUG_POLICY_DEFAULTS.completion_notify_mode;
+  const defaultStartMode =
+    input.routerConfig.task_bug_policy?.defaults?.start_mode ??
+    BUILTIN_TASK_BUG_POLICY_DEFAULTS.start_mode;
   const acceptanceDefaultSource =
     input.routerConfig.task_bug_policy?.defaults?.acceptance_mode
       ? "router_default"
       : "builtin_default";
   const completionDefaultSource =
     input.routerConfig.task_bug_policy?.defaults?.completion_notify_mode
+      ? "router_default"
+      : "builtin_default";
+  const startDefaultSource =
+    input.routerConfig.task_bug_policy?.defaults?.start_mode
       ? "router_default"
       : "builtin_default";
 
@@ -475,12 +572,14 @@ function resolveTaskBugPolicy(input: {
       rowCompletionNotifyMode !== "inherit"
         ? rowCompletionNotifyMode
         : defaultCompletionNotify,
+    start_mode: defaultStartMode,
     acceptance_mode_source:
       rowAcceptanceMode !== "inherit" ? "row_override" : acceptanceDefaultSource,
     completion_notify_mode_source:
       rowCompletionNotifyMode !== "inherit"
         ? "row_override"
         : completionDefaultSource,
+    start_mode_source: startDefaultSource,
     row_acceptance_mode: rowAcceptanceMode,
     row_completion_notify_mode: rowCompletionNotifyMode,
   };
@@ -490,10 +589,26 @@ function deriveWritebackPatch(input: {
   kind: FeishuTaskBugKind;
   envelope: NormalizedEnvelope;
   serviceResult: ServiceResult;
+  policy: ResolvedTaskBugPolicy;
 }): DerivedWritebackPatch {
+  const effectiveActionName = resolveEffectiveWritebackAction({
+    envelope: input.envelope,
+    serviceResult: input.serviceResult,
+  });
   const reviewResolutionDecision = normalizeReviewResolutionDecision(
     input.envelope.parameters?.decision,
   );
+  const bugFixResult =
+    input.kind === "bug"
+      ? normalizeBugFixResult(
+          pickString(
+            input.envelope.parameters?.fix_result,
+            input.envelope.parameters?.fixResult,
+            input.envelope.parameters?.bug_fix_result,
+            input.envelope.parameters?.bugFixResult,
+          ),
+        )
+      : null;
   const summary = truncateText(
     pickString(
       input.serviceResult.summary,
@@ -503,13 +618,24 @@ function deriveWritebackPatch(input: {
       input.serviceResult.escalation_reason,
     ),
   );
+  const evidence = truncateText(
+    pickString(
+      input.envelope.parameters?.evidence,
+      input.envelope.parameters?.verification,
+      input.envelope.parameters?.proof,
+    ),
+    1200,
+  );
+  const executionReport = buildExecutionReport({ summary, evidence });
   const escalationReason = truncateText(input.serviceResult.escalation_reason ?? null);
   const reviewLike =
+    effectiveActionName === "review" ||
+    effectiveActionName === "review_request" ||
     input.envelope.workflow === "review" ||
     /review/i.test(escalationReason ?? "") ||
     /review/i.test(summary ?? "");
 
-  if (input.envelope.action_name === "review_resolution") {
+  if (effectiveActionName === "review_resolution") {
     if (reviewResolutionDecision === "accepted") {
       return {
         phase: "resolution_boundary",
@@ -519,6 +645,7 @@ function deriveWritebackPatch(input: {
         next_action:
           truncateText(summary ? `已验收通过: ${summary}` : "已验收通过") ?? "已验收通过",
         summary,
+        execution_report: executionReport,
         set_started_at_if_empty: false,
       };
     }
@@ -534,6 +661,7 @@ function deriveWritebackPatch(input: {
             summary ? `根据验收反馈重新处理: ${summary}` : "根据验收反馈重新处理",
           ) ?? "根据验收反馈重新处理",
         summary,
+        execution_report: executionReport,
         set_started_at_if_empty: false,
       };
     }
@@ -545,26 +673,7 @@ function deriveWritebackPatch(input: {
       step_result: "failed",
       next_action: "缺少有效的 review_resolution decision",
       summary,
-      set_started_at_if_empty: false,
-    };
-  }
-
-  if (
-    input.envelope.workflow === "review" ||
-    input.serviceResult.needs_escalation ||
-    input.serviceResult.status === "needs_escalation"
-  ) {
-    return {
-      phase: "review_boundary",
-      status: "Reviewing",
-      current_step: "REVIEW_WAIT",
-      step_result: reviewLike ? "need_review" : "blocked",
-      next_action: truncateText(
-        reviewLike
-          ? `等待Review${summary ? `: ${summary}` : ""}`
-          : `NEED_DECISION: ${summary ?? escalationReason ?? "等待人工决策"}`,
-      ) ?? (reviewLike ? "等待Review" : "NEED_DECISION: 等待人工决策"),
-      summary,
+      execution_report: executionReport,
       set_started_at_if_empty: false,
     };
   }
@@ -581,6 +690,76 @@ function deriveWritebackPatch(input: {
       next_action:
         truncateText(summary ?? escalationReason ?? "排查失败原因") ?? "排查失败原因",
       summary,
+      execution_report: executionReport,
+      set_started_at_if_empty: false,
+    };
+  }
+
+  if (
+    effectiveActionName === "review" ||
+    effectiveActionName === "review_request" ||
+    effectiveActionName === "blocked" ||
+    input.envelope.workflow === "review" ||
+    input.serviceResult.needs_escalation ||
+    input.serviceResult.status === "needs_escalation"
+  ) {
+    return {
+      phase: "review_boundary",
+      status: "Reviewing",
+      current_step: "REVIEW_WAIT",
+      step_result: reviewLike ? "need_review" : "blocked",
+      next_action: truncateText(
+        reviewLike
+          ? `等待Review${summary ? `: ${summary}` : ""}`
+          : `NEED_DECISION: ${summary ?? escalationReason ?? "等待人工决策"}`,
+      ) ?? (reviewLike ? "等待Review" : "NEED_DECISION: 等待人工决策"),
+      summary,
+      execution_report: executionReport,
+      set_started_at_if_empty: false,
+    };
+  }
+
+  if (effectiveActionName === "complete") {
+    if (input.kind === "bug" && !bugFixResult) {
+      return {
+        phase: "error",
+        status: null,
+        current_step: "REPORT",
+        step_result: "failed",
+        next_action:
+          "缺少 Bug 修复结果 fix_result: 请明确 Fixed / Won't fix / Can't rep",
+        summary,
+        execution_report: executionReport,
+        set_started_at_if_empty: false,
+      };
+    }
+
+    if (input.policy.acceptance_mode === "agent_can_finalize") {
+      return {
+        phase: "completion_boundary",
+        status: input.kind === "task" ? "Done" : "Fixed",
+        current_step: "COMPLETE",
+        step_result: "accepted",
+        next_action:
+          truncateText(summary ? `已完成: ${summary}` : "已完成") ?? "已完成",
+        summary,
+        execution_report: executionReport,
+        bug_fix_result: bugFixResult,
+        set_started_at_if_empty: false,
+      };
+    }
+
+    return {
+      phase: "completion_boundary",
+      status: "Reviewing",
+      current_step: "REVIEW_WAIT",
+      step_result: "need_review",
+      next_action:
+        truncateText(summary ? `等待人工验收: ${summary}` : "等待人工验收") ??
+        "等待人工验收",
+      summary,
+      execution_report: executionReport,
+      bug_fix_result: bugFixResult,
       set_started_at_if_empty: false,
     };
   }
@@ -595,6 +774,7 @@ function deriveWritebackPatch(input: {
         ? "等待执行队列出列"
         : "继续执行当前事项",
     summary,
+    execution_report: executionReport,
     set_started_at_if_empty: true,
   };
 }
@@ -747,20 +927,26 @@ export function createFeishuTaskBugWritebackAdapter(
       const record = await findTargetRecord(target);
       const fields = target.kind === "task" ? taskFieldNames : bugFieldNames;
       const currentStatus = normalizeTextValue(getRecordFieldValue(record, fields.status)) || null;
-      const noopReason = shouldNoopForStatus({
-        kind: target.kind,
-        currentStatus,
-        actionName: input.envelope.action_name,
-        patch: deriveWritebackPatch({
-          kind: target.kind,
-          envelope: input.envelope,
-          serviceResult: input.serviceResult,
-        }),
-      });
       const policy = resolveTaskBugPolicy({
         routerConfig: input.routerConfig,
         acceptanceOverride: getRecordFieldValue(record, fields.acceptance_mode),
         completionNotifyOverride: getRecordFieldValue(record, fields.completion_notify_mode),
+      });
+      const patch = deriveWritebackPatch({
+        kind: target.kind,
+        envelope: input.envelope,
+        serviceResult: input.serviceResult,
+        policy,
+      });
+      const effectiveActionName = resolveEffectiveWritebackAction({
+        envelope: input.envelope,
+        serviceResult: input.serviceResult,
+      });
+      const noopReason = shouldNoopForStatus({
+        kind: target.kind,
+        currentStatus,
+        actionName: effectiveActionName,
+        patch,
       });
 
       if (noopReason) {
@@ -776,11 +962,6 @@ export function createFeishuTaskBugWritebackAdapter(
         continue;
       }
 
-      const patch = deriveWritebackPatch({
-        kind: target.kind,
-        envelope: input.envelope,
-        serviceResult: input.serviceResult,
-      });
       const nextFields: Record<string, unknown> = {
         [fields.current_step]: patch.current_step,
         [fields.step_result]: patch.step_result,
@@ -800,8 +981,15 @@ export function createFeishuTaskBugWritebackAdapter(
         nextFields[fields.started_at] = toFeishuDatetime(timestamp);
       }
 
-      if (target.kind === "task" && patch.summary) {
-        nextFields[taskFieldNames.execution_summary] = patch.summary;
+      const executionReport = patch.execution_report ?? patch.summary;
+      if (target.kind === "task" && executionReport) {
+        nextFields[taskFieldNames.execution_summary] = executionReport;
+      }
+      if (target.kind === "bug" && executionReport) {
+        nextFields[bugFieldNames.fix_method] = executionReport;
+      }
+      if (target.kind === "bug" && patch.bug_fix_result) {
+        nextFields[bugFieldNames.fix_result] = patch.bug_fix_result;
       }
 
       validateSelectCoverage({

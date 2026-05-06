@@ -9,9 +9,15 @@ import type {
   ArtifactRef,
   BeforePromptBuildEventLike,
   BeforePromptBuildResult,
+  PendingSemanticExecution,
   PromptBuildLikePayload,
   RuntimeBindingsConfig,
 } from "../../../../../core/src/types.ts";
+import {
+  assembleExecutionContext,
+  createExecutionEnvelopeFromPendingSemanticExecution,
+  type AssembledExecutionContext,
+} from "../../../../../harness/src/index.ts";
 import { loadProjectContext } from "../../../../../core/src/context/project-context-loader.ts";
 import { createSaveModePromptHook } from "./save-mode.ts";
 
@@ -213,6 +219,54 @@ function buildProjectLaneSummaryBlock(input: {
   return lines.join("\n");
 }
 
+function compactSemanticAgentContext(input: AssembledExecutionContext): string {
+  const lines = input.agent_context.split(/\r?\n/);
+  const compact: string[] = [];
+  let skippingOriginJson = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed === "work_surface_origin_json:") {
+      compact.push(
+        "work_surface_origin_json: <omitted from prompt; use the work_surface_origin summary above>",
+      );
+      skippingOriginJson = true;
+      continue;
+    }
+
+    if (skippingOriginJson) {
+      if (trimmed === "execution_context:") {
+        skippingOriginJson = false;
+        compact.push(line);
+      }
+      continue;
+    }
+
+    compact.push(line);
+  }
+
+  return compact.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+async function buildPendingSemanticExecutionBlock(input: {
+  pending: PendingSemanticExecution | null | undefined;
+  projectRoot: string;
+}): Promise<string | null> {
+  if (!input.pending) {
+    return null;
+  }
+  const envelope = createExecutionEnvelopeFromPendingSemanticExecution({
+    pending: input.pending,
+    projectRoot: input.projectRoot,
+  });
+  const assembled = await assembleExecutionContext({ envelope });
+  return [
+    "Assistant Context Router pending semantic execution:",
+    compactSemanticAgentContext(assembled),
+  ].join("\n");
+}
+
 export function createBeforePromptBuildHook(input: {
   registryPath: string;
   store: SessionProjectStore;
@@ -269,6 +323,13 @@ export function createBeforePromptBuildHook(input: {
 
     const saveModeResult = await saveModeHook(event, ctx);
     const prependParts = [buildContextBlock(context.rendered)];
+    const pendingSemanticBlock = await buildPendingSemanticExecutionBlock({
+      pending: sessionState.pending_semantic_execution,
+      projectRoot: entry.project_root,
+    });
+    if (pendingSemanticBlock) {
+      prependParts.push(pendingSemanticBlock);
+    }
     if (input.escalationStore) {
       const openEscalations = await input.escalationStore.listOpen({
         canonicalSessionKey,

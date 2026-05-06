@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { buildNormalizedLarkCliEnv } from "./lark-cli-env.ts";
+
 const execFileAsync = promisify(execFile);
 
 export interface LarkCliTable {
@@ -220,6 +222,37 @@ function asRecords(value: unknown): LarkCliRecord[] {
     .filter((item): item is LarkCliRecord => item !== null);
 }
 
+function asRecord(value: unknown, fallbackRecordId?: string | null): LarkCliRecord | null {
+  const normalized = normalizeRecord(value);
+  if (normalized) {
+    return normalized;
+  }
+
+  const objectValue = asObject(value);
+  if (!objectValue) {
+    return null;
+  }
+
+  const recordCandidate = objectValue.record;
+  const normalizedRecord = normalizeRecord(recordCandidate);
+  if (normalizedRecord) {
+    return normalizedRecord;
+  }
+
+  const fields =
+    asObject(recordCandidate) ??
+    asObject(objectValue.fields) ??
+    (fallbackRecordId && !("record" in objectValue) ? objectValue : null);
+  if (!fallbackRecordId || !fields) {
+    return null;
+  }
+
+  return {
+    record_id: fallbackRecordId,
+    fields,
+  };
+}
+
 function unwrapCliPayload(value: unknown): unknown {
   const objectValue = asObject(value);
   if (!objectValue) {
@@ -262,7 +295,7 @@ export function createExecFileLarkCliRunner(input: {
     async run(args: string[]): Promise<unknown> {
       const { stdout } = await execFileAsync(cliBin, args, {
         cwd: input.cwd,
-        env: input.env,
+        env: buildNormalizedLarkCliEnv(input.env),
       });
       return parseJsonOutput(stdout);
     },
@@ -312,6 +345,23 @@ export function createLarkCliBaseClient(options: LarkCliBaseClientOptions) {
         await execute(
           baseArgs("+record-list", ["--table-id", tableIdOrName, "--limit", String(limit)]),
         ),
+      );
+    },
+
+    async getRecord(
+      tableIdOrName: string,
+      recordId: string,
+    ): Promise<LarkCliRecord | null> {
+      return asRecord(
+        await execute(
+          baseArgs("+record-get", [
+            "--table-id",
+            tableIdOrName,
+            "--record-id",
+            recordId,
+          ]),
+        ),
+        recordId,
       );
     },
 

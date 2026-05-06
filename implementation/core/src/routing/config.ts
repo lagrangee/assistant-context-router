@@ -7,6 +7,7 @@ import type {
   RouterConfig,
   TaskBugAcceptanceMode,
   TaskBugCompletionNotifyMode,
+  TaskBugStartMode,
 } from "../types.ts";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -39,6 +40,14 @@ function normalizeCompletionNotifyMode(
     : undefined;
 }
 
+function normalizeStartMode(value: unknown): TaskBugStartMode | undefined {
+  return value === "manual_only" ||
+    value === "dispatch_on_create" ||
+    value === "agent_may_claim"
+    ? value
+    : undefined;
+}
+
 function normalizeProjectSessionBinding(value: unknown): RouterConfig["project_session_binding"] {
   return normalizeRuntimeBinding(value);
 }
@@ -62,8 +71,9 @@ function normalizeTaskBugPolicy(value: unknown): RouterConfig["task_bug_policy"]
   const completionNotifyMode = normalizeCompletionNotifyMode(
     defaults.completion_notify_mode,
   );
+  const startMode = normalizeStartMode(defaults.start_mode);
 
-  if (!acceptanceMode && !completionNotifyMode) {
+  if (!acceptanceMode && !completionNotifyMode && !startMode) {
     return null;
   }
 
@@ -71,6 +81,7 @@ function normalizeTaskBugPolicy(value: unknown): RouterConfig["task_bug_policy"]
     defaults: {
       acceptance_mode: acceptanceMode ?? null,
       completion_notify_mode: completionNotifyMode ?? null,
+      start_mode: startMode ?? null,
     },
   };
 }
@@ -187,6 +198,10 @@ export function mergeRouterConfigs(
         completion_notify_mode:
           override.task_bug_policy?.defaults?.completion_notify_mode ??
           base.task_bug_policy?.defaults?.completion_notify_mode ??
+          null,
+        start_mode:
+          override.task_bug_policy?.defaults?.start_mode ??
+          base.task_bug_policy?.defaults?.start_mode ??
           null,
       },
     },

@@ -24,6 +24,8 @@
 ## Why monorepo here
 当前仓库里的几个主要模块不是弱关联关系，而是会一起演进：
 - `implementation/core/` 定义通用 contract 与 routing logic
+- `implementation/harness/` 承接通用 execution envelope / context assembly / playbook selection / boundary protocol
+- `implementation/domains/` 承接 task / bug / card 等跨 work-surface 的 domain playbook pack
 - `implementation/adapters/openclaw/` 承接宿主运行时与 plugin 接入
 - `implementation/adapters/feishu/` 承接外部 work-surface / governance 集成
 - `implementation/tests/` 负责跨模块验证真实集成切片
@@ -44,6 +46,8 @@
 ### Bucket 1: implementation
 对应：
 - `implementation/core/**`
+- `implementation/harness/**`
+- `implementation/domains/**`
 - `implementation/adapters/**`
 - `implementation/tests/**`
 - `implementation/README.md`
@@ -95,6 +99,49 @@
 - 可以被 adapters 依赖
 - 不应反向依赖任何 adapter 目录
 
+### `implementation/harness/`
+定位：
+- ACR 的 generic execution harness layer
+- 将外部 work-surface request 包装成 agent 可执行的 execution envelope
+- 选择并渲染 playbook guidance
+- 校验 agent complete / review / blocked boundary
+
+应该放这里：
+- `ExecutionEnvelope` / `AssembledExecutionContext` 等 harness-facing contract
+- playbook registry / selection / context assembly
+- generic playbook，例如 `work-surface-execution`、`acr-boundary-protocol`
+- 不依赖具体 runtime 或具体 work surface 的 harness tests
+
+不应该放这里：
+- Feishu / Lark CLI 字段读取与写回
+- OpenClaw session delivery
+- Task / Bug / Card 的 domain-specific 状态语义
+- 某个项目私有协作规则
+
+依赖规则：
+- 可以依赖 `implementation/core/**`
+- 可以被 adapters 依赖
+- 不应依赖 `implementation/adapters/**`
+
+### `implementation/domains/`
+定位：
+- ACR 内可复用的 business / domain playbook pack
+- 当前第一类 domain 是 `work-items`，覆盖 task / bug / card / ticket 的通用执行语义
+
+应该放这里：
+- vendor-neutral domain playbook
+- task / bug / card 类 workflow 语义
+- acceptance / completion / review 这类跨 work surface 的 agent-facing contract
+
+不应该放这里：
+- Feishu 字段名、table id、lark-cli navigation 细节
+- OpenClaw hook/runtime 细节
+- harness registry / selection 内核
+
+依赖规则：
+- domain playbook 可被 harness registry 引用
+- domain 实现不应反向依赖某个 adapter
+
 ### `implementation/adapters/openclaw/runtime/`
 定位：
 - OpenClaw runtime bridge
@@ -137,6 +184,20 @@
 不应该放这里：
 - OpenClaw plugin host 逻辑
 - ACR core 的通用 route model
+
+### `implementation/adapters/work-surfaces/feishu/`
+定位：
+- Feishu Base 作为 work surface 的低层读写与导航能力
+- Feishu-specific playbook pack，例如 `feishu-base-navigation`
+
+应该放这里：
+- `lark-cli base` client / env / manual sync 等 work-surface 操作
+- Feishu Base table / record navigation guidance
+
+不应该放这里：
+- ACR harness generic registry / selection / boundary protocol
+- task / bug / card 的 vendor-neutral domain semantics
+- OpenClaw plugin host 逻辑
 
 ### `implementation/tests/`
 定位：

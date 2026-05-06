@@ -189,6 +189,174 @@ test("structured automation wrapper survives non-bracketed host preamble", async
   assert.match(log, /missing_openclaw_runtime_system_api/);
 });
 
+test("structured automation wrapper survives Feishu text content envelope", async () => {
+  const workspace = await makeDemoAcrWorkspace();
+  const plugin = createAssistantContextRouterPlugin({
+    registryPath: workspace.registryPath,
+    dataDir: workspace.dataDir,
+  });
+
+  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
+  await plugin.register({
+    registerCommand() {},
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+  });
+
+  const beforeDispatch = handlers.get("before_dispatch");
+  assert.ok(beforeDispatch);
+
+  const fixture = await loadDemoAcrFixture("append-note");
+  const wrappedMessage = `[ACR_AUTOMATION]\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
+  const result = await beforeDispatch?.({
+    content: JSON.stringify({ text: wrappedMessage }),
+    sessionKey: "agent:main:main",
+    channel: "feishu",
+  });
+
+  assert.equal(result?.handled, true);
+  assert.equal(result?.text, undefined);
+
+  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
+  const log = await readFile(lanePath, "utf8");
+  assert.match(log, /append_project_note/);
+  assert.match(log, /missing_openclaw_runtime_system_api/);
+});
+
+test("structured automation wrapper survives Feishu workflow rich post body wrapper", async () => {
+  const workspace = await makeDemoAcrWorkspace();
+  const plugin = createAssistantContextRouterPlugin({
+    registryPath: workspace.registryPath,
+    dataDir: workspace.dataDir,
+  });
+
+  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
+  await plugin.register({
+    registerCommand() {},
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+  });
+
+  const beforeDispatch = handlers.get("before_dispatch");
+  assert.ok(beforeDispatch);
+
+  const fixture = await loadDemoAcrFixture("append-note");
+  const wrappedMessage = `[ACR_AUTOMATION]\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
+  const richPost = JSON.stringify({
+    title: null,
+    elements: [
+      [
+        {
+          tag: "text",
+          text: wrappedMessage,
+        },
+      ],
+      [
+        {
+          tag: "hr",
+        },
+      ],
+    ],
+    user_dsl: JSON.stringify({
+      config: {},
+      elements: [
+        {
+          content: wrappedMessage,
+        },
+      ],
+    }),
+  });
+  const result = await beforeDispatch?.({
+    body: `[message_id: om_xxx]\nou_test_sender: ${richPost}`,
+    content: richPost,
+    sessionKey: "agent:main:main",
+    channel: "feishu",
+  });
+
+  assert.equal(result?.handled, true);
+  assert.equal(result?.text, undefined);
+
+  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
+  const log = await readFile(lanePath, "utf8");
+  assert.match(log, /append_project_note/);
+  assert.match(log, /missing_openclaw_runtime_system_api/);
+});
+
+test("structured automation wrapper survives zero-width chars and BOM inside wrapper payload", async () => {
+  const workspace = await makeDemoAcrWorkspace();
+  const plugin = createAssistantContextRouterPlugin({
+    registryPath: workspace.registryPath,
+    dataDir: workspace.dataDir,
+  });
+
+  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
+  await plugin.register({
+    registerCommand() {},
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+  });
+
+  const beforeDispatch = handlers.get("before_dispatch");
+  assert.ok(beforeDispatch);
+
+  const fixture = await loadDemoAcrFixture("append-note");
+  const wrappedMessage = `[ACR_AUTOMATION]\n\uFEFF\u200B${JSON.stringify(fixture, null, 2)}\u200D\n[/ACR_AUTOMATION]`;
+  const result = await beforeDispatch?.({
+    content: wrappedMessage,
+    sessionKey: "agent:main:main",
+    channel: "feishu",
+  });
+
+  assert.equal(result?.handled, true);
+  assert.equal(result?.text, undefined);
+
+  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
+  const log = await readFile(lanePath, "utf8");
+  assert.match(log, /append_project_note/);
+});
+
+test("structured automation wrapper safe-fails when wrapper body contains non-json prelude", async () => {
+  const workspace = await makeDemoAcrWorkspace();
+  const plugin = createAssistantContextRouterPlugin({
+    registryPath: workspace.registryPath,
+    dataDir: workspace.dataDir,
+  });
+
+  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
+  await plugin.register({
+    registerCommand() {},
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+  });
+
+  const beforeDispatch = handlers.get("before_dispatch");
+  assert.ok(beforeDispatch);
+
+  const fixture = await loadDemoAcrFixture("append-note");
+  const wrappedMessage = `[ACR_AUTOMATION]\npreview-only\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
+  const result = await beforeDispatch?.({
+    content: wrappedMessage,
+    sessionKey: "agent:main:main",
+    channel: "feishu",
+  });
+
+  assert.equal(result?.handled, true);
+  assert.match(String(result?.text), /malformed automation message/i);
+
+  const debugPath = path.join(
+    workspace.dataDir,
+    "assistant-context-router",
+    "malformed-automation-messages.jsonl",
+  );
+  const debugLog = await readFile(debugPath, "utf8");
+  assert.match(debugLog, /invalid_protocol_json/);
+  assert.match(debugLog, /resolved_text/);
+});
+
 test("bare automation JSON body still routes append_project_note when host strips protocol wrapper", async () => {
   const workspace = await makeDemoAcrWorkspace();
   const plugin = createAssistantContextRouterPlugin({
@@ -334,6 +502,58 @@ test("demo-acr dispatch fixture can reply directly to channel and log completion
   assert.match(String(deliveryOutbox[0]?.error_reason), /record_only:unsupported_feishu_reply_target/);
 });
 
+test("direct channel reply includes task record anchor when present", async () => {
+  const workspace = await makeDemoAcrWorkspace();
+  const plugin = createAssistantContextRouterPlugin({
+    registryPath: workspace.registryPath,
+    dataDir: workspace.dataDir,
+    serviceHandlers: {
+      "demo-acr:dispatch": async (request) => ({
+        status: "ok",
+        result_kind: "accepted",
+        summary: `Dispatch accepted for ${request.resolved_project_id}`,
+        reply_payload: `Accepted ${request.action_name} for ${request.resolved_project_id}`,
+        needs_escalation: false,
+        escalation_reason: null,
+        run_id: "run-demo-dispatch-anchor-001",
+        queue_ref: null,
+        artifact_ref: null,
+        trace_patch: null,
+      }),
+    },
+  });
+
+  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
+  await plugin.register({
+    registerCommand() {},
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+  });
+
+  const beforeDispatch = handlers.get("before_dispatch");
+  assert.ok(beforeDispatch);
+
+  const fixture = await loadDemoAcrFixture("dispatch-ok");
+  const payload = fixture.payload as Record<string, unknown>;
+  const parameters = (payload.parameters as Record<string, unknown>) ?? {};
+  const result = await beforeDispatch?.({
+    ...fixture,
+    payload: {
+      ...payload,
+      parameters: {
+        ...parameters,
+        task_record_id: "rec_task_anchor_001",
+      },
+    },
+    sessionKey: "agent:main:demo-acr-dispatch-anchor",
+  });
+
+  assert.equal(result?.handled, true);
+  assert.match(String(result?.text), /Accepted dispatch/);
+  assert.match(String(result?.text), /Task Record: rec_task_anchor_001/);
+});
+
 test("task/bug writeback observer receives project router policy defaults on service path", async () => {
   const workspace = await makeTempProjectWorkspace();
   await writeFile(
@@ -346,6 +566,7 @@ task_bug_policy:
   defaults:
     acceptance_mode: agent_can_finalize
     completion_notify_mode: dm_on_completion_boundary
+    start_mode: agent_may_claim
 `,
   );
 
@@ -354,6 +575,7 @@ task_bug_policy:
     taskRecordId: string | null;
     acceptanceMode: string | null | undefined;
     completionNotifyMode: string | null | undefined;
+    startMode: string | null | undefined;
     summary: string | null | undefined;
   }> = [];
 
@@ -384,6 +606,7 @@ task_bug_policy:
         acceptanceMode: input.routerConfig.task_bug_policy?.defaults?.acceptance_mode,
         completionNotifyMode:
           input.routerConfig.task_bug_policy?.defaults?.completion_notify_mode,
+        startMode: input.routerConfig.task_bug_policy?.defaults?.start_mode,
         summary: input.serviceResult.summary,
       });
     },
@@ -431,8 +654,105 @@ task_bug_policy:
     taskRecordId: "rec-task-1",
     acceptanceMode: "agent_can_finalize",
     completionNotifyMode: "dm_on_completion_boundary",
+    startMode: "agent_may_claim",
     summary: "Dispatch accepted for proj-sample",
   });
+});
+
+test("structured agent complete message routes through ACR ingress instead of normal chat", async () => {
+  const workspace = await makeTempProjectWorkspace();
+  await writeFile(
+    path.join(workspace.root, "projects", "delivery", "sample-project", "router.yaml"),
+    `actions:
+  complete:
+    target_kind: service
+    workflow: dispatch
+    requires_resolved_project: true
+`,
+  );
+
+  const observed: Array<{
+    actionName: string | null;
+    sourceType: string | null;
+    taskRecordId: string | null;
+    summary: string | null | undefined;
+  }> = [];
+
+  const plugin = createAssistantContextRouterPlugin({
+    registryPath: workspace.registryPath,
+    dataDir: workspace.dataDir,
+    serviceHandlers: {
+      complete: async (request) => ({
+        status: "ok",
+        result_kind: "accepted",
+        work_surface_action: "complete",
+        summary: String(request.parameters?.summary ?? "Complete accepted"),
+        reply_payload: "Complete accepted",
+        needs_escalation: false,
+        escalation_reason: null,
+        trace_patch: null,
+      }),
+    },
+    taskBugWritebackObserver: async (input) => {
+      observed.push({
+        actionName: input.envelope.action_name,
+        sourceType: input.envelope.source_type,
+        taskRecordId:
+          typeof input.envelope.parameters?.task_record_id === "string"
+            ? input.envelope.parameters.task_record_id
+            : null,
+        summary: input.serviceResult.summary,
+      });
+    },
+  });
+
+  const handlers = new Map<
+    string,
+    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
+  >();
+  await plugin.register({
+    registerCommand() {},
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+  });
+
+  const beforeDispatch = handlers.get("before_dispatch");
+  assert.ok(beforeDispatch);
+
+  const result = await beforeDispatch?.({
+    channel: "tui",
+    sessionKey: "agent:main:human",
+    text: `[ACR_AUTOMATION]
+{
+  "channel": "openclaw",
+  "payload": {
+    "source_type": "agent",
+    "project_id": "proj-sample",
+    "action_name": "complete",
+    "workflow": "dispatch",
+    "parameters": {
+      "task_record_id": "rec-task-agent-complete",
+      "summary": "Agent reached completion boundary"
+    },
+    "trace_id": "trace-agent-complete-001",
+    "message_id": "msg-agent-complete-001"
+  }
+}
+[/ACR_AUTOMATION]`,
+  });
+
+  assert.equal(result?.handled, true);
+  assert.match(String(result?.text), /Complete accepted/);
+  assert.match(String(result?.text), /Task Record: rec-task-agent-complete/);
+  assert.deepEqual(observed, [
+    {
+      actionName: "complete",
+      sourceType: "agent",
+      taskRecordId: "rec-task-agent-complete",
+      summary: "Agent reached completion boundary",
+    },
+  ]);
 });
 
 test("work-surface projection observer receives snapshot from the real signal path", async () => {

@@ -5,7 +5,12 @@ import type {
   RouteDecision,
   ServiceResult,
   SignalPromotionDecision,
+  TaskBugCompletionNotifyMode,
 } from "../types.ts";
+
+export interface SignalPromotionPolicy {
+  completion_notify_mode?: TaskBugCompletionNotifyMode | null;
+}
 
 export function deriveSignalReason(input: {
   decision: RouteDecision;
@@ -42,6 +47,7 @@ export function deriveProjectSessionSignalKind(input: {
   serviceResult?: ServiceResult | null;
   deliveryResult?: ProjectSessionDeliveryResult | null;
   envelope: NormalizedEnvelope;
+  signalPolicy?: SignalPromotionPolicy | null;
 }): ProjectSessionSignalKind {
   if (
     input.deliveryResult?.status === "failed" ||
@@ -74,6 +80,14 @@ export function deriveProjectSessionSignalKind(input: {
       return "review_request";
     }
     return "blocked";
+  }
+
+  if (
+    input.serviceResult?.status === "ok" &&
+    input.serviceResult.work_surface_action === "complete" &&
+    input.signalPolicy?.completion_notify_mode === "dm_on_completion_boundary"
+  ) {
+    return "high_signal_completion";
   }
 
   if (

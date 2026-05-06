@@ -15,6 +15,10 @@
 - 自动新增字段、枚举或 relation
 - 直接把 `Tasks / Bugs` 变成 ACR / workflow truth host
 
+补充：
+- 关于 `Todo / Doing / Fixing / Reviewing / Done / Fixed` 的 work-surface 语义，以及哪些状态迁移才应触发 automation ingress，当前以 [feishu-work-surface-operating-model.md](<repo-root>/plan/active/feishu-work-surface-operating-model.md:1) 为准
+- 本文档更聚焦字段 ownership、acceptance policy、以及 writeback/runtime 行为
+
 ## Current implemented schema slice
 当前已在 live Base `private config host` 完成第一批 schema 变更：
 
@@ -103,10 +107,10 @@ task_bug_policy:
   - `ACR完成提醒`
 
 ### Self-hosted harness status
-`proj-assistant-context-router` 当前也已补上最薄的 project-owned self-hosted harness：
+`proj-assistant-context-router` 当前也已从 validation-only harness 进入 semantic bridge harness：
 
 - repo root 已新增 [router.yaml](<repo-root>/router.yaml:1)
-- validation fixture 已新增 [validation/service-results.json](<repo-root>/validation/service-results.json:1)
+- validation fixture [validation/service-results.json](<repo-root>/validation/service-results.json:1) 仍保留为旧 rehearsal fixture，但当前 live router 不再使用它
 
 当前 shape 保持克制：
 - `dispatch`
@@ -121,14 +125,15 @@ task_bug_policy:
 - `append_project_note`
   - `target_kind: project_session`
   - `workflow: general`
-- `service_binding.runtime_kind = validation_fixture`
+- `service_binding.runtime_kind = feishu_task_bug_semantic`
+- `service_binding.target_ref = agent:main:main`
 - `task_bug_policy.defaults.*` 与当前 contract 保持一致：
   - `manual_acceptance`
   - `no_dm_on_completion_boundary`
 
 这意味着：
 - ACR 项目本身已不再缺 project-side router contract
-- 后续 self-hosted live validate 的主要 blocker 不再是 repo 内缺配置
+- `dispatch` 已不再按 fixture 返回固定结果，而是会读取真实 `Task/Bug` row 并投递 main-session execution request
 - 当前 self-hosted live anchor 也已就位：
   - `Projects` row:
     - `proj-assistant-context-router`
@@ -136,14 +141,17 @@ task_bug_policy:
   - validation `Task` row:
     - title: `[ACR self-host] live validate Task writeback`
     - record id: `<validation-task-record-id>`
-- 当前下一条最小动作已收敛为：
-  - 向 `automation-ingress` 发送一条带 `task_record_id=<validation-task-record-id>` 的 structured `dispatch` 消息
-  - 验证该 row 是否自动进入 `Doing` 并写入：
+- 当前下一条最小动作已收敛为重启后的 Human live acceptance：
+  - 从 Feishu card 触发 `Todo -> Doing/Fixing`
+  - 验证 dispatch 群收到 semantic queued 回执
+  - 验证 main session 收到含 card context 的 semantic execution request
+  - 验证该 row 是否保持执行中并写入：
     - `current_step`
     - `step_result`
     - `next_action`
     - `last_event_at`
     - `ACR开始执行时间`
+  - 验证 agent 在 assistant output 中产出的 boundary block 会由 ACR 自动捕获，并按 `acceptance_mode` 推进到 `Reviewing` 或 `Done / Fixed`
 
 当前这轮 self-hosted live validate 已真实通过：
 - `automation-ingress` 群收到：
@@ -232,15 +240,15 @@ task_bug_policy:
   - 对 `Done / Fixed` 不做 terminal noop
   - 允许 Human 先改 card，再由 ACR 对齐 `current_step / step_result / next_action`
 - 避免把已在 `Reviewing` 的 row 回退成 `Doing / Fixing`
-- 当前仍不自动写：
+- 无显式 `complete / review_resolution` 语义时，当前仍不自动写：
   - Task `Done`
   - Bug `Fixed`
   - `实际完成时间`
   - `修复结果`
 
 补充说明：
-- 上述 “当前仍不自动写 Task `Done` / Bug `Fixed`” 指的是 ACR 自主推进终态
-- 不包括 Human 已明确给出 `review_resolution` 的场景
+- 上述 “当前仍不自动写 Task `Done` / Bug `Fixed`” 指的是没有 explicit boundary 的自主推进终态
+- 不包括 Human 已明确给出 `review_resolution`，或 agent 已明确给出 `complete` 且 `acceptance_mode = agent_can_finalize` 的场景
 
 ### Validation
 当前 implementation tests 已覆盖并全绿：`184/184`
@@ -294,14 +302,20 @@ task_bug_policy:
 
 这意味着先前的 live blocker 已解除。
 
-### 当前不属于 blocker，但需要保持观察
-- `fix 结果`
-  - live options：
-    - `Fixed / Won't fix / Can't rep / Need review`
-  - 当前 ACR first slice 尚未写该字段
-  - 结论：
-    - 暂不需要立刻扩 `Dict Definition`
-    - 但后续若 `Bug` 终态对齐开始写 `修复结果`，必须先重新做 enum audit
+### `修复结果`
+当前采纳为 Bug agent 的 proposed result，而不是 Human 验收状态。
+
+推荐有效值：
+- `Fixed`
+- `Won't fix`
+- `Can't rep`
+
+关键边界：
+- `Need review` 不应作为 `修复结果` 的业务枚举继续使用
+- `need_review` 只属于 ACR runtime 字段 `step_result`
+- Human 是否接受 agent 的 proposed result，由 `Reviewing -> Fixed / Todo` 的状态迁移表达
+- ACR 只在 Bug `complete` 明确携带 `fix_result` 时写入 `修复结果`
+- 若 Bug `complete` 缺少 `fix_result`，ACR 应 fail closed，不默认猜成 `Fixed`
 
 - `Work Surface状态`
   - 当前存在于 `Dict Definition`
@@ -398,6 +412,27 @@ task_bug_policy:
 
 当前不建议第一刀就对所有手动状态编辑都触发 automation。
 
+### Live Base workflow status
+当前 live Base 已为 `Tasks` 与 `Bugs` 都落下并启用最小 workflow：
+
+- `<task-review-accepted-workflow-id>`
+  - `Tasks Reviewing -> Done`
+  - 自动发送 `review_resolution / accepted` 到当前 `automation_ingress`
+- `<task-review-rejected-workflow-id>`
+  - `Tasks Reviewing -> Todo`
+  - 自动发送 `review_resolution / rejected` 到当前 `automation_ingress`
+- `<bug-review-accepted-workflow-id>`
+  - `Bugs Reviewing -> Fixed`
+  - 自动发送 `review_resolution / accepted` 到当前 `automation_ingress`
+- `<bug-review-rejected-workflow-id>`
+  - `Bugs Reviewing -> Todo`
+  - 自动发送 `review_resolution / rejected` 到当前 `automation_ingress`
+
+当前仍保持克制：
+- 只覆盖 `Reviewing -> Done/Todo/Fixed`
+- 只覆盖 `review_resolution` 的 accepted/rejected 回流
+- 不把其他手动状态编辑一并自动化
+
 ### Minimum ingress shape
 当前建议的最小 payload 语义是：
 - `workflow = review`
@@ -441,6 +476,18 @@ task_bug_policy:
 - `agent_can_finalize`
   - ACR 可以自行收口到终态
   - Human 若仍手动改 card，则应视为显式 override / reopen decision
+
+补充：
+- `complete`
+  - 是 ACR / agent 在执行侧发出的“已完成”结构化信号
+  - 必须携带 concrete `parameters.summary`
+    - ACR 不再用 card title / headline 兜底成执行摘要
+    - 缺少 summary 或复制 placeholder 时，应 fail closed 为 blocked / escalation，而不是推进完成边界
+  - 应携带 `parameters.evidence` 描述 changed records / files / commands / verification evidence
+  - 若 `acceptance_mode = manual_acceptance`
+    - `complete` 只推进到 `Reviewing / REVIEW_WAIT / need_review`
+  - 若 `acceptance_mode = agent_can_finalize`
+    - `complete` 才可直接推进到 `Done / Fixed / COMPLETE / accepted`
 
 ## Why this note exists now
 当前关于 Feishu 的真实产品闭环，已经不再只是：
@@ -532,7 +579,6 @@ task_bug_policy:
 - `优先级`
 - `Assignee`
 - `验证人`
-- `修复方式`
 - `所属项目`
 - `关联task`
 
@@ -541,10 +587,11 @@ task_bug_policy:
 - `step_result`
 - `next_action`
 - `last_event_at`
+- `修复方式`
+- `修复结果`
 
 ### Policy-gated shared
 - `状态`
-- `修复结果`
 
 ### Frozen / undecided
 - `resource_key`
@@ -848,11 +895,18 @@ task_bug_policy:
      - `next_action`
      - `last_event_at`
      - `执行摘要`（Task）
+     - `修复方式`（Bug）
+     - `修复结果`（Bug complete 且显式 `fix_result`）
 
 当前继续后置的仍是：
-- `状态` 的终态推进
 - `实际完成时间`
-- `修复结果`
+
+当前已进入实现态并通过 live validation：
+- `completion_notify_mode` 驱动的 completion-boundary DM
+  - 仅在 row / project policy 明确要求 `dm_on_completion_boundary` 时触发
+  - 生成 business notification delivery，不创建 governance truth
+  - target 仍通过配置化 binding 解析，不 hardcode 微信账号或 session key
+  - WeChat direct channel 失败时可 fallback 到 OpenClaw main session delivery
 
 ## Relationship to escalation and notification
 ### 1. `completion_notify_mode` 不是 governance truth
@@ -880,12 +934,33 @@ task_bug_policy:
 - `next_action`
 - `last_event_at`
 - `执行摘要`（Task）
+- `修复方式`（Bug）
+- `修复结果`（Bug complete 且显式 `fix_result`）
 - `状态` 的非终态推进：`Todo -> Doing/Fixing -> Reviewing`
+- policy-gated completion first slice：
+  - `complete + manual_acceptance`
+    - `Reviewing / REVIEW_WAIT / need_review`
+  - `complete + agent_can_finalize`
+    - `Done / Fixed / COMPLETE / accepted`
+  - `complete` missing concrete `summary`
+    - `blocked / needs_escalation`
+  - `review_resolution / accepted`
+    - `Done / Fixed / COMPLETE / accepted`
+  - `review_resolution / rejected`
+    - `Todo / REPLAN / rejected`
+- `completion_notify_mode = dm_on_completion_boundary`
+  - 只在 writeback plan 产生 `completion_boundary` 更新时触发
+  - 生成 business notification，而不是 governance truth
+  - delivery target 使用配置化 human DM target；当前默认可解析到 `governance.default_target`
+  - WeChat direct delivery failure 会 fallback 到 OpenClaw main-session delivery，并保留 delivery outbox audit
+  - OpenClaw `llm_output` regression 已覆盖 Bug complete boundary：
+    - pending `bug_record_id` 合并回 boundary envelope
+    - `fix_result` 保留到 service/writeback 链
+    - completion boundary DM 不会创建 governance delivery
+  - 当前 live validation 已确认 completion-boundary WeChat DM 可收到
 
 ### Policy-gated later
-- `状态` 的终态推进：`Reviewing -> Done/Fixed`
 - `实际完成时间`
-- `修复结果`
 
 ### Defer until schema discussion
 - `runtime_started_at`
@@ -916,11 +991,22 @@ task_bug_policy:
 
 ## Not authorized yet
 当前这份 contract 仍不授权：
-- 自动推进 Task `Done` / Bug `Fixed`
+- 无显式 `complete / review_resolution` 语义的终态推进
+- 绕过 `acceptance_mode` 的自动终态推进
 - 自动写 `实际完成时间`
-- 自动写 `修复结果`
+- 缺少 explicit `fix_result` 时自动猜测 `修复结果`
 - 根据 `task_id` / `resource_key` / title 做隐式 row 匹配
 - 调整 `Tasks / Bugs` 现有状态枚举
 - 把 `Tasks / Bugs` 接成 ACR truth host
+
+补充：
+- 当前已授权并实际创建的 Base workflow，仅限：
+  - `Tasks Reviewing -> Done => review_resolution / accepted`
+  - `Tasks Reviewing -> Todo => review_resolution / rejected`
+  - `Bugs Reviewing -> Fixed => review_resolution / accepted`
+  - `Bugs Reviewing -> Todo => review_resolution / rejected`
+- 且当前这 4 条 workflow 都已完成一轮收紧：
+  - 必须由 `Reviewing` 迁移到目标状态才触发
+  - 不再把任意 `-> Todo` 自动解释成 `rejected`
 
 这些仍应在后续 Human review 后，作为独立 writeback / policy slice 进入实现。

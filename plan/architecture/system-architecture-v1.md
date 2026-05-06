@@ -102,6 +102,27 @@ memory 是一级核心模块，但不能替代真相层。
 - Step 2 的主交付层
 - 建立在 Step 1.5 recovery baseline 之上
 
+### 5.5 Harness Layer
+ACR 仍然定义为 project-centric Assistant Context Router；harness 是 ACR 内部新增的 execution layer，不是产品重命名。
+
+职责：
+- 将外部 work-surface request 包装成 `ExecutionEnvelope`
+- 基于 typed facts 选择 playbook，而不是让 agent 解释 manifest 或解析自然语言标题
+- 将 project anchor、work-surface origin、domain semantics、adapter navigation 和 boundary rules assemble 成 agent-facing context
+- 校验 agent 输出的 `complete` / `review` / `blocked` boundary，再交给 writeback / notification / lane 记录
+
+边界：
+- harness core 只承载 generic execution kernel
+- Feishu / Jira / GitHub 等 surface-specific navigation 留在 work-surface adapter playbook pack
+- task / bug / card / ticket 语义进入 domain playbook pack
+- runtime adapter 只负责 delivery / hook 承载，不决定 business semantics
+
+当前 seed playbooks：
+- `work-surface-execution`：generic work-surface 执行规则
+- `acr-boundary-protocol`：generic complete / review / blocked 收口协议
+- `work-item-card-semantics`：task / bug / card 的 vendor-neutral domain semantics
+- `feishu-base-navigation`：Feishu Base navigation adapter guidance
+
 ### 6. Execution Mode / Backend Layer
 这一层负责“怎么执行”，不是“什么是真相”。
 

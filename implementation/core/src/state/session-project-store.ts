@@ -149,6 +149,10 @@ export function createSessionProjectStore(options?: {
             patch.pending_save_draft !== undefined
               ? patch.pending_save_draft
               : (existing?.pending_save_draft ?? null),
+          pending_semantic_execution:
+            patch.pending_semantic_execution !== undefined
+              ? patch.pending_semantic_execution
+              : (existing?.pending_semantic_execution ?? null),
         };
 
         state.sessions[sessionKey] = nextState;
@@ -199,6 +203,10 @@ export function createSessionProjectStore(options?: {
           pending_save_draft:
             patch?.pending_save_draft !== undefined
               ? patch.pending_save_draft
+              : null,
+          pending_semantic_execution:
+            patch?.pending_semantic_execution !== undefined
+              ? patch.pending_semantic_execution
               : null,
         };
 

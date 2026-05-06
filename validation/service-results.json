@@ -54,6 +54,19 @@
       "trace_patch": {
         "validation_case": "review_resolution"
       }
+    },
+    "complete": {
+      "status": "ok",
+      "result_kind": "accepted",
+      "summary": "Completion recorded for proj-assistant-context-router",
+      "reply_payload": "Completion recorded for proj-assistant-context-router",
+      "needs_escalation": false,
+      "escalation_reason": null,
+      "run_id": "run-acr-complete-001",
+      "queue_ref": null,
+      "trace_patch": {
+        "validation_case": "completion_boundary"
+      }
     }
   }
 }

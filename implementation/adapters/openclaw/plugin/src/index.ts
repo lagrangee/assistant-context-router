@@ -16,6 +16,7 @@ import {
   type ProjectWorkSurfaceSyncRunner,
 } from "./commands/project-work-surface-sync.ts";
 import { handleProjectsCommand } from "./commands/projects.ts";
+import { resolveIngressMessageText } from "./protocols/ingress-text.ts";
 import { parseStructuredAutomationMessage } from "./protocols/automation-message.ts";
 import { getProjectById } from "../../../../core/src/projects/registry.ts";
 import { loadProjectRouterConfig, loadRouterConfig, mergeRouterConfigs } from "../../../../core/src/routing/config.ts";
@@ -34,6 +35,7 @@ import {
 import {
   decideSignalPromotion,
   deriveProjectSessionSignalKind,
+  type SignalPromotionPolicy,
 } from "../../../../core/src/routing/signal-promotion.ts";
 import { createInternalServiceRegistry } from "../../../../core/src/routing/services.ts";
 import { createServiceBridgeRegistry } from "../../../../core/src/routing/service-bridge.ts";
@@ -48,6 +50,7 @@ import {
 } from "../../runtime/src/project-session-delivery.ts";
 import { createOpenClawGovernanceDeliveryAdapter } from "../../runtime/src/governance-delivery.ts";
 import { createValidationFixtureServiceBridgeAdapter } from "../../runtime/src/validation-fixture-service-bridge.ts";
+import { createOpenClawMainSessionSemanticExecutor } from "../../runtime/src/feishu-task-bug-semantic-executor.ts";
 import { handleSaveCommand } from "./commands/save.ts";
 import { createBeforePromptBuildHook } from "./hooks/before-prompt-build.ts";
 import { decideRoute } from "../../../../core/src/routing/decision.ts";
@@ -63,11 +66,13 @@ import type {
   CommandContextLike,
   MainSessionEscalationRecord,
   NormalizedEnvelope,
+  PendingSemanticExecution,
 } from "../../../../core/src/types.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   resolveGovernanceDeliveryBinding,
+  resolveFeishuConfigPath,
 } from "../../../feishu/src/config-host.ts";
 import {
   resolveDefaultFeishuProjectCatalogSyncOptions,
@@ -78,12 +83,20 @@ import {
   resolveDefaultFeishuTaskBugWritebackOptions,
   runFeishuTaskBugWriteback,
 } from "../../../feishu/src/task-bug-writeback.ts";
+import { createFeishuTaskBugSemanticServiceBridgeAdapter } from "../../../feishu/src/task-bug-semantic-service-bridge.ts";
+import { validateBoundaryResult } from "../../../../harness/src/index.ts";
 import {
   resolveDefaultFeishuWorkSurfaceManualSyncOptions,
   runFeishuWorkSurfaceManualSync,
 } from "../../../work-surfaces/feishu/src/manual-sync.ts";
-import { createOpenClawFeishuBusinessNotificationDeliveryAdapter } from "../../runtime/src/business-notification-delivery.ts";
+import { buildNormalizedLarkCliEnv } from "../../../work-surfaces/feishu/src/lark-cli-env.ts";
+import {
+  createOpenClawFeishuBusinessNotificationDeliveryAdapter,
+  createOpenClawSessionBusinessNotificationDeliveryAdapter,
+  createOpenClawWechatBusinessNotificationDeliveryAdapter,
+} from "../../runtime/src/business-notification-delivery.ts";
 import { handleProjectNotificationsCommand } from "./commands/project-notifications.ts";
+import { appendFile, mkdir } from "node:fs/promises";
 
 interface PluginApiLike {
   config?: {
@@ -103,6 +116,24 @@ interface PluginApiLike {
     workflowBindingsPath?: string;
   };
   runtime?: {
+    config?: {
+      loadConfig?: () => unknown;
+    };
+    channel?: {
+      outbound?: {
+        loadAdapter?: (id: string) => Promise<
+          | {
+              sendText?: (ctx: {
+                cfg: unknown;
+                to: string;
+                text: string;
+                accountId?: string | null;
+              }) => Promise<unknown>;
+            }
+          | undefined
+        >;
+      };
+    };
     state?: {
       resolveStateDir?: () => string;
     };
@@ -207,6 +238,7 @@ export interface BusinessNotificationDeliveryObserverInput {
   notification: BusinessNotificationRecord;
   envelope: NormalizedEnvelope;
   dataDir?: string;
+  deliveryTargetHint?: "completion_boundary_dm" | null;
 }
 
 export type BusinessNotificationDeliveryObserver = (
@@ -224,6 +256,50 @@ export interface TaskBugWritebackObserverInput {
 export type TaskBugWritebackObserver = (
   input: TaskBugWritebackObserverInput,
 ) => Promise<unknown>;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isTaskBugCompletionNotifyMode(
+  value: unknown,
+): value is NonNullable<SignalPromotionPolicy["completion_notify_mode"]> {
+  return value === "dm_on_completion_boundary" || value === "no_dm_on_completion_boundary";
+}
+
+function deriveSignalPromotionPolicyFromWritebackResult(
+  result: unknown,
+): SignalPromotionPolicy | null {
+  const record = asRecord(result);
+  const plans = Array.isArray(record?.plans) ? record.plans : [];
+  let sawCompletionBoundary = false;
+
+  for (const item of plans) {
+    const plan = asRecord(item);
+    const policy = asRecord(plan?.policy);
+    const completionNotifyMode = policy?.completion_notify_mode;
+    if (
+      plan?.operation === "updated" &&
+      plan.reason === "completion_boundary" &&
+      isTaskBugCompletionNotifyMode(completionNotifyMode)
+    ) {
+      if (completionNotifyMode === "dm_on_completion_boundary") {
+        return {
+          completion_notify_mode: "dm_on_completion_boundary",
+        };
+      }
+      sawCompletionBoundary = true;
+    }
+  }
+
+  return sawCompletionBoundary
+    ? {
+        completion_notify_mode: "no_dm_on_completion_boundary",
+      }
+    : null;
+}
 
 function buildDefaultGovernanceDeliveryObserver(config: {
   feishuConfigPath?: string | null;
@@ -271,6 +347,9 @@ function buildDefaultGovernanceDeliveryObserver(config: {
 function buildDefaultBusinessNotificationDeliveryObserver(config: {
   env?: NodeJS.ProcessEnv;
   workflowBindingsPath?: string | null;
+  feishuConfigPath?: string | null;
+  runtime?: PluginApiLike["runtime"];
+  runtimeBindings?: Awaited<ReturnType<typeof loadRuntimeBindingsConfig>>;
 } = {}): BusinessNotificationDeliveryObserver {
   return async (input) => {
     const workflowBindings = await loadWorkflowBindingsConfig(
@@ -278,16 +357,28 @@ function buildDefaultBusinessNotificationDeliveryObserver(config: {
       config.env,
       input.dataDir,
     );
+    const completionDmTarget =
+      input.deliveryTargetHint === "completion_boundary_dm"
+        ? await resolveGovernanceDeliveryBinding({
+            configPath: config.feishuConfigPath,
+            env: config.env,
+            dataDir: input.dataDir,
+          })
+        : null;
     const outbox = createBusinessNotificationDeliveryOutbox({
       dataDir: input.dataDir,
     });
     const plan = buildBusinessNotificationDeliveryPlan({
       notification: input.notification,
       envelope: input.envelope,
-      defaultReplyTarget: resolveWorkflowDefaultReplyTarget({
-        workflow: input.notification.workflow ?? input.envelope.workflow,
-        config: workflowBindings,
-      }),
+      defaultDeliveryTarget: completionDmTarget,
+      defaultReplyTarget:
+        input.deliveryTargetHint === "completion_boundary_dm"
+          ? null
+          : resolveWorkflowDefaultReplyTarget({
+              workflow: input.notification.workflow ?? input.envelope.workflow,
+              config: workflowBindings,
+            }),
     });
     const record = await outbox.upsertPending(plan.seed);
 
@@ -302,9 +393,25 @@ function buildDefaultBusinessNotificationDeliveryObserver(config: {
       });
     }
 
-    const deliveryAdapter = createOpenClawFeishuBusinessNotificationDeliveryAdapter({
-      env: config.env,
-    });
+    const runtimeEnv =
+      input.dataDir
+        ? buildLocalLarkCliRuntimeEnv(config.env)
+        : buildNormalizedLarkCliEnv(config.env);
+
+    const deliveryAdapter =
+      record.channel_type === "feishu"
+        ? createOpenClawFeishuBusinessNotificationDeliveryAdapter({
+            env: runtimeEnv,
+          })
+        : record.channel_type === "wechat"
+          ? createOpenClawWechatBusinessNotificationDeliveryAdapter({
+              runtime: config.runtime,
+              runtimeBindings: config.runtimeBindings,
+            })
+          : createOpenClawSessionBusinessNotificationDeliveryAdapter({
+              runtime: config.runtime,
+              runtimeBindings: config.runtimeBindings,
+            });
     const deliveryResult = await deliveryAdapter(record);
 
     return outbox.markDelivery({
@@ -331,15 +438,23 @@ function buildDefaultTaskBugWritebackObserver(config: {
       env: config.env,
       dataDir: input.dataDir,
     });
-
-    return runFeishuTaskBugWriteback({
-      envelope: input.envelope,
-      serviceResult: input.serviceResult,
-      routerConfig: input.routerConfig,
-      dataDir: input.dataDir,
-      apply: true,
-      ...binding,
-    });
+    const runtimeEnv =
+      input.dataDir
+        ? buildLocalLarkCliRuntimeEnv(config.env)
+        : buildNormalizedLarkCliEnv(config.env);
+    try {
+      return await runFeishuTaskBugWriteback({
+        envelope: input.envelope,
+        serviceResult: input.serviceResult,
+        routerConfig: input.routerConfig,
+        dataDir: input.dataDir,
+        apply: true,
+        env: runtimeEnv,
+        ...binding,
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 }
 
@@ -358,10 +473,6 @@ function formatCommandError(error: unknown): string {
 function resolveDefaultRegistryPath(): string {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(currentDir, "../../../../../../../index.yaml");
-}
-
-function pickTrimmedString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizeSlashLikeText(rawText: string): string {
@@ -389,44 +500,113 @@ function normalizeSlashLikeText(rawText: string): string {
 }
 
 function resolveMessageText(event: Record<string, unknown>, ctx?: unknown): string {
+  return normalizeSlashLikeText(resolveIngressMessageText({ event, ctx }));
+}
+
+function buildMalformedAutomationDebugSample(input: {
+  text: string;
+  event: Record<string, unknown>;
+  ctx?: unknown;
+  sessionKey: string | null;
+  reason: string;
+}): Record<string, unknown> {
   const messageRecord =
-    event.message && typeof event.message === "object"
-      ? (event.message as Record<string, unknown>)
+    input.event.message && typeof input.event.message === "object"
+      ? (input.event.message as Record<string, unknown>)
       : null;
   const payloadRecord =
-    event.payload && typeof event.payload === "object"
-      ? (event.payload as Record<string, unknown>)
+    input.event.payload && typeof input.event.payload === "object"
+      ? (input.event.payload as Record<string, unknown>)
       : null;
-  const ctxRecord = ctx && typeof ctx === "object" ? (ctx as Record<string, unknown>) : null;
+  const ctxRecord =
+    input.ctx && typeof input.ctx === "object" ? (input.ctx as Record<string, unknown>) : null;
 
-  const candidates = [
-    event.text,
-    event.body,
-    event.content,
-    event.input,
-    event.rawText,
-    event.commandBody,
-    typeof event.message === "string" ? event.message : undefined,
-    messageRecord?.text,
-    messageRecord?.body,
-    messageRecord?.content,
-    payloadRecord?.text,
-    payloadRecord?.body,
-    payloadRecord?.content,
-    ctxRecord?.text,
-    ctxRecord?.body,
-    ctxRecord?.content,
-    ctxRecord?.input,
-    ctxRecord?.commandBody,
-  ];
-
-  for (const value of candidates) {
-    const text = pickTrimmedString(value);
-      if (text) {
-      return normalizeSlashLikeText(text);
+  const pick = (value: unknown): string | null => {
+    if (typeof value !== "string") {
+      return null;
     }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return trimmed.slice(0, 1000);
+  };
+
+  return {
+    recorded_at: new Date().toISOString(),
+    reason: input.reason,
+    session_key: input.sessionKey,
+    resolved_text: input.text.slice(0, 2000),
+    event_candidates: {
+      text: pick(input.event.text),
+      body: pick(input.event.body),
+      content: pick(input.event.content),
+      input: pick(input.event.input),
+      rawText: pick(input.event.rawText),
+      commandBody: pick(input.event.commandBody),
+      message_text: pick(messageRecord?.text),
+      message_body: pick(messageRecord?.body),
+      message_content: pick(messageRecord?.content),
+      payload_text: pick(payloadRecord?.text),
+      payload_body: pick(payloadRecord?.body),
+      payload_content: pick(payloadRecord?.content),
+      ctx_text: pick(ctxRecord?.text),
+      ctx_body: pick(ctxRecord?.body),
+      ctx_content: pick(ctxRecord?.content),
+      ctx_input: pick(ctxRecord?.input),
+      ctx_commandBody: pick(ctxRecord?.commandBody),
+    },
+  };
+}
+
+async function persistMalformedAutomationDebugSample(input: {
+  dataDir: string;
+  text: string;
+  event: Record<string, unknown>;
+  ctx?: unknown;
+  sessionKey: string | null;
+  reason: string;
+  api: PluginApiLike;
+}): Promise<void> {
+  try {
+    const record = buildMalformedAutomationDebugSample({
+      text: input.text,
+      event: input.event,
+      ctx: input.ctx,
+      sessionKey: input.sessionKey,
+      reason: input.reason,
+    });
+    const outputPath = path.join(
+      input.dataDir,
+      "assistant-context-router",
+      "malformed-automation-messages.jsonl",
+    );
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await appendFile(outputPath, `${JSON.stringify(record)}\n`, "utf8");
+    debugLog(
+      input.api,
+      `before_dispatch malformed automation sample persisted path=${outputPath}`,
+    );
+  } catch (error) {
+    debugLog(
+      input.api,
+      `before_dispatch malformed automation sample persist failed error=${JSON.stringify(formatCommandError(error))}`,
+    );
   }
-  return "";
+}
+
+function buildLocalLarkCliRuntimeEnv(sourceEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const input = sourceEnv ?? process.env;
+  return buildNormalizedLarkCliEnv({
+    HOME: input.HOME,
+    USER: input.USER,
+    LOGNAME: input.LOGNAME,
+    SHELL: input.SHELL,
+    PATH: input.PATH,
+    LANG: input.LANG,
+    LC_ALL: input.LC_ALL,
+    TMPDIR: input.TMPDIR,
+  });
 }
 
 function resolveSessionKeyFromEvent(event: Record<string, unknown>, ctx?: unknown): string | null {
@@ -579,6 +759,39 @@ function buildAutomationProtocolErrorMessage(reason: string): string {
   return `Assistant Context Router safe-fail: malformed automation message (${reason}).`;
 }
 
+function buildDirectReplyText(input: {
+  serviceResult: import("../../../../core/src/types.ts").ServiceResult;
+  envelope: import("../../../../core/src/types.ts").NormalizedEnvelope;
+}): string {
+  const base = input.serviceResult.reply_payload ?? "";
+  const taskRecordId =
+    typeof input.envelope.parameters?.task_record_id === "string"
+      ? input.envelope.parameters.task_record_id.trim()
+      : typeof input.envelope.parameters?.taskRecordId === "string"
+        ? input.envelope.parameters.taskRecordId.trim()
+        : null;
+  const bugRecordId =
+    typeof input.envelope.parameters?.bug_record_id === "string"
+      ? input.envelope.parameters.bug_record_id.trim()
+      : typeof input.envelope.parameters?.bugRecordId === "string"
+        ? input.envelope.parameters.bugRecordId.trim()
+        : null;
+
+  const details: string[] = [];
+  if (taskRecordId) {
+    details.push(`Task Record: ${taskRecordId}`);
+  }
+  if (bugRecordId) {
+    details.push(`Bug Record: ${bugRecordId}`);
+  }
+
+  if (details.length === 0) {
+    return base;
+  }
+
+  return [base, ...details].join("\n");
+}
+
 async function recordSignalPromotion(input: {
   runtime: PluginRuntimeContext;
   projectId: string;
@@ -587,12 +800,14 @@ async function recordSignalPromotion(input: {
   envelope: import("../../../../core/src/types.ts").NormalizedEnvelope;
   serviceResult?: import("../../../../core/src/types.ts").ServiceResult | null;
   deliveryResult?: import("../../../../core/src/types.ts").ProjectSessionDeliveryResult | null;
+  signalPolicy?: SignalPromotionPolicy | null;
 }): Promise<import("../../../../core/src/types.ts").SignalPromotionDecision> {
   const signalKind = deriveProjectSessionSignalKind({
     decision: input.decision,
     envelope: input.envelope,
     serviceResult: input.serviceResult,
     deliveryResult: input.deliveryResult,
+    signalPolicy: input.signalPolicy,
   });
   const promotion = decideSignalPromotion({
     signalKind,
@@ -640,6 +855,11 @@ async function recordSignalPromotion(input: {
       notification,
       envelope: input.envelope,
       dataDir: input.runtime.resolvedDataDir,
+      deliveryTargetHint:
+        input.serviceResult?.work_surface_action === "complete" &&
+        input.signalPolicy?.completion_notify_mode === "dm_on_completion_boundary"
+          ? "completion_boundary_dm"
+          : null,
     });
   }
 
@@ -700,6 +920,245 @@ interface PluginRuntimeContext {
   workSurfaceProjectionObserver: WorkSurfaceProjectionObserver | null;
 }
 
+function assistantTextFromLlmOutputEvent(event: Record<string, unknown>): string {
+  const assistantTexts = Array.isArray(event.assistantTexts)
+    ? event.assistantTexts
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+  return assistantTexts.join("\n\n").trim();
+}
+
+function isSemanticBoundaryAction(actionName: string | null): actionName is "complete" | "review" | "review_request" | "blocked" {
+  return (
+    actionName === "complete" ||
+    actionName === "review" ||
+    actionName === "review_request" ||
+    actionName === "blocked"
+  );
+}
+
+function mergePendingSemanticBoundaryEnvelope(input: {
+  envelope: NormalizedEnvelope;
+  pending: PendingSemanticExecution;
+}): NormalizedEnvelope | null {
+  if (input.envelope.source_type !== "agent") {
+    return null;
+  }
+  if (!isSemanticBoundaryAction(input.envelope.action_name)) {
+    return null;
+  }
+
+  const envelopeProjectId =
+    input.envelope.resolved_project_id ?? input.envelope.project_ref;
+  if (envelopeProjectId && envelopeProjectId !== input.pending.project_id) {
+    return null;
+  }
+
+  const parameters = {
+    ...(input.pending.task_record_id
+      ? { task_record_id: input.pending.task_record_id }
+      : {}),
+    ...(input.pending.bug_record_id
+      ? { bug_record_id: input.pending.bug_record_id }
+      : {}),
+    ...(input.pending.trace_id
+      ? { semantic_source_trace_id: input.pending.trace_id }
+      : {}),
+    ...(input.envelope.parameters ?? {}),
+  };
+
+  return {
+    ...input.envelope,
+    project_ref: input.envelope.project_ref ?? input.pending.project_id,
+    resolved_project_id:
+      input.envelope.resolved_project_id ?? input.pending.project_id,
+    parameters,
+  };
+}
+
+async function handleSemanticBoundaryLlmOutput(input: {
+  event: Record<string, unknown>;
+  ctx?: unknown;
+  sessionKey: string | null;
+  runtime: PluginRuntimeContext;
+  registryPath: string;
+  api: PluginApiLike;
+}): Promise<void> {
+  if (!input.sessionKey) {
+    return;
+  }
+
+  const sessionState = await input.runtime.store.get(input.sessionKey);
+  const pending = sessionState?.pending_semantic_execution ?? null;
+  if (!pending) {
+    return;
+  }
+
+  const assistantText = assistantTextFromLlmOutputEvent(input.event);
+  if (!assistantText) {
+    return;
+  }
+
+  const parsed = parseStructuredAutomationMessage({
+    text: assistantText,
+    event: {
+      text: assistantText,
+      channel: "openclaw",
+    },
+    ctx: input.ctx,
+  });
+  if (!parsed.matched || parsed.error || parsed.match_source !== "wrapper" || !parsed.event) {
+    if (parsed.matched && parsed.error) {
+      debugLog(
+        input.api,
+        `llm_output semantic boundary parse failed reason=${parsed.error}`,
+      );
+    }
+    return;
+  }
+
+  const envelope = normalizeIngressEvent({ event: parsed.event, ctx: input.ctx });
+  if (!envelope) {
+    return;
+  }
+
+  const routingEnvelope = mergePendingSemanticBoundaryEnvelope({
+    envelope,
+    pending,
+  });
+  if (!routingEnvelope) {
+    return;
+  }
+
+  const boundaryValidation = validateBoundaryResult({
+    action_name: routingEnvelope.action_name,
+    parameters: routingEnvelope.parameters,
+    work_items: pending.execution_contexts ?? [],
+  });
+  if (!boundaryValidation.ok) {
+    debugLog(
+      input.api,
+      `llm_output semantic boundary rejected errors=${boundaryValidation.errors.join(",")} reason=${boundaryValidation.escalation_reason ?? "unknown"}`,
+    );
+    return;
+  }
+
+  const projectEntry = await getProjectById(input.registryPath, pending.project_id);
+  if (!projectEntry) {
+    debugLog(
+      input.api,
+      `llm_output semantic boundary unresolved project=${pending.project_id}`,
+    );
+    return;
+  }
+
+  const projectRouterConfig = await loadProjectRouterConfig(projectEntry);
+  const effectiveRouterConfig = mergeRouterConfigs(
+    input.runtime.routerConfig,
+    projectRouterConfig,
+  );
+  const actionName = routingEnvelope.action_name;
+  const availableServiceActions =
+    actionName &&
+    (
+      input.runtime.serviceRegistry.has(actionName, pending.project_id) ||
+      (!!effectiveRouterConfig.service_binding &&
+        effectiveRouterConfig.actions?.[actionName]?.target_kind === "service")
+    )
+      ? new Set([actionName])
+      : new Set<string>();
+  const decision = decideRoute({
+    envelope: routingEnvelope,
+    sessionKey: input.sessionKey,
+    sessionState,
+    availableServiceActions,
+    actionConfig: actionName
+      ? (effectiveRouterConfig.actions?.[actionName] ?? null)
+      : null,
+  });
+
+  await input.runtime.store.set(input.sessionKey, {
+    current_workflow: decision.workflow ?? sessionState?.current_workflow ?? null,
+    last_route_trace: createRouteTraceFromDecision(decision, {
+      traceId: routingEnvelope.trace_id,
+      sourceType: routingEnvelope.source_type,
+      channelType: routingEnvelope.channel_type,
+    }),
+  });
+
+  if (decision.target_kind !== "service" || !actionName) {
+    debugLog(
+      input.api,
+      `llm_output semantic boundary ignored target=${decision.target_kind} reason=${decision.safe_fail_reason ?? decision.route_reason}`,
+    );
+    return;
+  }
+
+  const serviceRequest = {
+    action_name: actionName,
+    resolved_project_id:
+      decision.resolved_project_id === "unresolved"
+        ? ""
+        : decision.resolved_project_id,
+    workflow: decision.workflow,
+    parameters: routingEnvelope.parameters,
+    trace_id: routingEnvelope.trace_id,
+    reply_target: routingEnvelope.reply_target,
+  };
+  const hasDirectHandler = input.runtime.serviceRegistry.has(
+    actionName,
+    pending.project_id,
+  );
+  const serviceResult = hasDirectHandler
+    ? await input.runtime.serviceRegistry.execute(actionName, serviceRequest)
+    : effectiveRouterConfig.service_binding
+      ? await input.runtime.serviceBridgeRegistry.execute({
+          binding: effectiveRouterConfig.service_binding,
+          request: serviceRequest,
+        })
+      : await input.runtime.serviceRegistry.execute(actionName, serviceRequest);
+
+  const writebackResult = await input.runtime.taskBugWritebackObserver?.({
+    projectId: pending.project_id,
+    envelope: routingEnvelope,
+    serviceResult,
+    routerConfig: effectiveRouterConfig,
+    dataDir: input.runtime.resolvedDataDir,
+  });
+  const signalPolicy = deriveSignalPromotionPolicyFromWritebackResult(writebackResult);
+  const lanePath = await appendProjectSessionEvent({
+    projectId: pending.project_id,
+    decision,
+    envelope: routingEnvelope,
+    dataDir: input.runtime.resolvedDataDir,
+    serviceResult,
+    signalPolicy,
+  });
+  await recordSignalPromotion({
+    runtime: input.runtime,
+    projectId: pending.project_id,
+    canonicalSessionKey: input.sessionKey,
+    decision,
+    envelope: routingEnvelope,
+    serviceResult,
+    signalPolicy,
+  });
+  await input.runtime.store.set(input.sessionKey, {
+    pending_semantic_execution: null,
+    last_route_trace: createRouteTraceFromDecision(decision, {
+      traceId: routingEnvelope.trace_id,
+      sourceType: routingEnvelope.source_type,
+      channelType: routingEnvelope.channel_type,
+    }),
+  });
+  debugLog(
+    input.api,
+    `llm_output semantic boundary routed to service lane path=${lanePath}`,
+  );
+}
+
 function createRuntimeContextLoader(input: {
   registryPath: string;
   dataDir?: string;
@@ -739,9 +1198,38 @@ function createRuntimeContextLoader(input: {
           process.env,
           resolvedDataDir ?? null,
         );
+        const feishuConfigPath =
+          input.feishuConfigPath ??
+          input.api.pluginConfig?.feishuConfigPath ??
+          input.api.config?.feishuConfigPath ??
+          null;
+        const resolvedFeishuConfigPath = resolveFeishuConfigPath({
+          configPath: feishuConfigPath,
+          env: process.env,
+          dataDir: resolvedDataDir ?? null,
+        });
         const serviceRegistry = createInternalServiceRegistry(input.serviceHandlers);
         const serviceBridgeRegistry = createServiceBridgeRegistry({
           validation_fixture: createValidationFixtureServiceBridgeAdapter(),
+          feishu_task_bug_semantic: createFeishuTaskBugSemanticServiceBridgeAdapter({
+            env: resolvedDataDir
+              ? buildLocalLarkCliRuntimeEnv(process.env)
+              : buildNormalizedLarkCliEnv(process.env),
+            configHostPath: resolvedFeishuConfigPath,
+            executor: createOpenClawMainSessionSemanticExecutor({
+              runtime: input.api.runtime,
+              runtimeBindings,
+              store,
+            }),
+            resolveProjectRoot: async (projectId) =>
+              (await getProjectById(input.registryPath, projectId))?.project_root ?? null,
+            resolveClientConfig: () =>
+              resolveDefaultFeishuTaskBugWritebackOptions({
+                configPath: feishuConfigPath,
+                env: process.env,
+                dataDir: resolvedDataDir ?? null,
+              }),
+          }),
           ...(input.serviceBridgeAdapters ?? {}),
         });
         const deliveryRegistry = createProjectSessionDeliveryRegistry(
@@ -766,11 +1254,18 @@ function createRuntimeContextLoader(input: {
           input.businessNotificationDeliveryObserver ??
           buildDefaultBusinessNotificationDeliveryObserver({
             env: process.env,
+            feishuConfigPath:
+              input.feishuConfigPath ??
+              input.api.pluginConfig?.feishuConfigPath ??
+              input.api.config?.feishuConfigPath ??
+              null,
             workflowBindingsPath:
               input.workflowBindingsPath ??
               input.api.pluginConfig?.workflowBindingsPath ??
               input.api.config?.workflowBindingsPath ??
               null,
+            runtime: input.api.runtime,
+            runtimeBindings,
           });
         const businessNotificationDeliveryObserver = businessNotificationDeliveryHandler
           ? async (observerInput: BusinessNotificationDeliveryObserverInput) => {
@@ -797,7 +1292,7 @@ function createRuntimeContextLoader(input: {
         const taskBugWritebackObserver = taskBugWritebackHandler
           ? async (observerInput: TaskBugWritebackObserverInput) => {
               try {
-                await taskBugWritebackHandler(observerInput);
+                return await taskBugWritebackHandler(observerInput);
               } catch (error) {
                 debugLog(
                   input.api,
@@ -1072,6 +1567,15 @@ export function createAssistantContextRouterPlugin(input: {
               ctx,
             });
             if (structuredMessage.matched && structuredMessage.error) {
+              await persistMalformedAutomationDebugSample({
+                dataDir: runtime.resolvedDataDir,
+                text,
+                event,
+                ctx,
+                sessionKey,
+                reason: structuredMessage.error,
+                api,
+              });
               debugLog(
                 api,
                 `before_dispatch structured automation parse failed source=${structuredMessage.match_source ?? "unknown"} reason=${structuredMessage.error}`,
@@ -1094,7 +1598,9 @@ export function createAssistantContextRouterPlugin(input: {
             }
 
             const envelope = normalizeIngressEvent({ event: ingressEvent, ctx });
-            if (envelope?.source_type === "automation") {
+            const isStructuredAgentAutomation =
+              structuredMessage.matched && envelope?.source_type === "agent";
+            if (envelope?.source_type === "automation" || isStructuredAgentAutomation) {
               const projectLookupId = envelope.resolved_project_id ?? envelope.project_ref;
               const resolvedProjectEntry = projectLookupId
                 ? await getProjectById(input.registryPath, projectLookupId)
@@ -1265,19 +1771,21 @@ export function createAssistantContextRouterPlugin(input: {
                     ? null
                     : finalDecision.resolved_project_id;
                 if (projectId) {
+                  const writebackResult = await runtime.taskBugWritebackObserver?.({
+                    projectId,
+                    envelope: routingEnvelope,
+                    serviceResult,
+                    routerConfig: effectiveRouterConfig,
+                    dataDir: runtime.resolvedDataDir,
+                  });
+                  const signalPolicy = deriveSignalPromotionPolicyFromWritebackResult(writebackResult);
                   const lanePath = await appendProjectSessionEvent({
                     projectId,
                     decision: finalDecision,
                     envelope: routingEnvelope,
                     dataDir: runtime.resolvedDataDir,
                     serviceResult,
-                  });
-                  await runtime.taskBugWritebackObserver?.({
-                    projectId,
-                    envelope: routingEnvelope,
-                    serviceResult,
-                    routerConfig: effectiveRouterConfig,
-                    dataDir: runtime.resolvedDataDir,
+                    signalPolicy,
                   });
                   await recordSignalPromotion({
                     runtime,
@@ -1286,6 +1794,7 @@ export function createAssistantContextRouterPlugin(input: {
                     decision: finalDecision,
                     envelope: routingEnvelope,
                     serviceResult,
+                    signalPolicy,
                   });
                   debugLog(api, `before_dispatch service result logged to project session lane path=${lanePath}`);
                 }
@@ -1301,7 +1810,10 @@ export function createAssistantContextRouterPlugin(input: {
                 ) {
                   return {
                     handled: true,
-                    text: serviceResult.reply_payload,
+                    text: buildDirectReplyText({
+                      serviceResult,
+                      envelope,
+                    }),
                   };
                 }
 
@@ -1331,6 +1843,14 @@ export function createAssistantContextRouterPlugin(input: {
           const sessionKey = rawSessionKey
             ? resolveMainSessionBinding(rawSessionKey, runtime.runtimeBindings).canonical_session_key
             : undefined;
+          await handleSemanticBoundaryLlmOutput({
+            event,
+            ctx,
+            sessionKey: sessionKey ?? null,
+            runtime,
+            registryPath: input.registryPath,
+            api,
+          });
           await createSaveModeLlmOutputHook({ store: runtime.store })(event, { sessionKey });
           return {};
         },
