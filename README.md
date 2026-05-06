@@ -58,6 +58,14 @@
 - 如果目标是 **判断 save / writeback 应写到哪**：先读 `RESUME.md` -> `execution/COLLAB.md` -> `docs/README.md`
 - 如果目标是 **做架构判断**：先读 `plan/architecture/system-architecture-v1.md` -> `plan/architecture/roadmap-milestones-v1.md`
 
+## Local configuration
+真实运行时配置不应写入 repo。
+
+- 从 `.env.example` 复制本机 `.env`，并填入 `FEISHU_BASE_TOKEN` 等私有值。
+- Feishu adapter 也支持通过 `ACR_FEISHU_CONFIG_PATH` 指向本机 YAML config host。
+- OpenClaw runtime bindings 可通过 `ACR_RUNTIME_BINDINGS_PATH` 或 plugin data dir 默认路径加载。
+- 当前代码没有 live Feishu Base token fallback；缺少 env/config 时会 fail closed。
+
 ## Key project docs
 - `STATUS.md`：当前阶段总收口 / 单入口摘要
 - `RESUME.md`：当前工作主线、上次中断点、下一步

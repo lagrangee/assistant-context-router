@@ -2,7 +2,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import {
-  DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN,
+  FEISHU_WORK_SURFACE_BASE_TOKEN_ENV,
   type FeishuIdentity,
   type FeishuRelationWriteMode,
   resolveFeishuWorkSurfaceBinding,
@@ -19,7 +19,7 @@ import {
   type FeishuWorkSurfaceUpsertPlan,
   type FeishuWorkSurfaceUpsertResult,
 } from "./work-surface-adapter.ts";
-export { DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN } from "../../../feishu/src/config-host.ts";
+export { FEISHU_WORK_SURFACE_BASE_TOKEN_ENV } from "../../../feishu/src/config-host.ts";
 
 export interface FeishuWorkSurfaceManualSyncOptions
   extends Pick<
@@ -107,7 +107,7 @@ export function parseFeishuWorkSurfaceManualSyncArgs(
   env: NodeJS.ProcessEnv = process.env,
 ): ParsedFeishuWorkSurfaceManualSyncArgs {
   let projectId: string | null = null;
-  let baseToken: string | null = env.FEISHU_BASE_TOKEN?.trim() || DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN;
+  let baseToken: string | null = env[FEISHU_WORK_SURFACE_BASE_TOKEN_ENV]?.trim() || null;
   let identity: FeishuIdentity | undefined;
   let cliBin: string | undefined;
   let dataDir: string | undefined;
@@ -168,7 +168,7 @@ export function parseFeishuWorkSurfaceManualSyncArgs(
 
   return {
     projectId: requireStringFlag(projectId ?? undefined, "--project-id"),
-    baseToken: requireStringFlag(baseToken ?? undefined, "--base-token"),
+    baseToken: requireStringFlag(baseToken ?? undefined, `--base-token-or-${FEISHU_WORK_SURFACE_BASE_TOKEN_ENV}`),
     identity,
     cliBin,
     dataDir,

@@ -13,7 +13,7 @@
 若需要新增或调整表、字段、枚举、view，仍需先与 Human 讨论确认。
 
 ## Confirmed decisions
-- 默认沿用既有 Base：`private config host`
+- 通过 FEISHU_BASE_TOKEN 或 config host 绑定既有 Base：`private config host`
 - 第一刀不把当前 project-level latest snapshot 直接写入 `Tasks / Bugs`
 - `Tasks / Bugs` 的 meta 设计、字段契约、状态流转逻辑只作为继承参考
 - `Service Runs Monitor` 不作为当前 projection 的默认目标
@@ -24,7 +24,7 @@
 ## Live Base status
 经 Human review 确认后，当前 Base 已完成第一刀真实落地：
 
-- Base 仍为：`private config host`
+- Base 仍通过私有 config host 绑定
 - `Dict Definition` 已注册枚举字段：`Work Surface状态`
 - 已新建 projection table：`Work Surface Snapshots`
 - table id：`<work-surface-table-id>`
@@ -208,8 +208,8 @@
     - 支持 env + optional local config host
     - 若未显式指定，则默认尝试发现 `<plugin dataDir>/assistant-context-router/feishu-adapter.yaml`
     - 再把解析后的 `baseToken / tableNames / fieldNames / relationWriteMode` 传给 adapter
-  - 若当前没有显式 config host，现阶段仍会保守回退到当前 code-level default Base token：`private config host`
-  - `FEISHU_BASE_TOKEN` 仍可作为最直接的 env override
+  - 若当前没有显式 config host 或 `FEISHU_BASE_TOKEN`，work-surface path 会 fail closed
+  - `FEISHU_BASE_TOKEN` 仍可作为最直接的 env source
   - TUI command path 现在会把 sync failure 直接回显为友好文本，而不是 generic command failure
   - 这让 Feishu 继续保持 work-surface adapter 身份，而不是默认变成 runtime 自动 sink
 

@@ -7,7 +7,8 @@ import { parseSimpleYaml } from "../../../core/src/lib/simple-yaml.ts";
 export const DEFAULT_FEISHU_CONFIG_PATH_ENV = "ACR_FEISHU_CONFIG_PATH";
 export const DEFAULT_FEISHU_CONFIG_FILENAME = "feishu-adapter.yaml";
 export const DEFAULT_FEISHU_CONFIG_DIRNAME = "assistant-context-router";
-export const DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN = "private config host";
+export const FEISHU_WORK_SURFACE_BASE_TOKEN_ENV = "FEISHU_BASE_TOKEN";
+export const DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN_REF = `env:${FEISHU_WORK_SURFACE_BASE_TOKEN_ENV}`;
 export const DEFAULT_GOVERNANCE_CHANNEL_TYPE = "wechat";
 export const DEFAULT_GOVERNANCE_TARGET_KIND = "dm";
 export const DEFAULT_GOVERNANCE_TARGET_REF = "local:human_dm";
@@ -102,6 +103,7 @@ export interface FeishuConfigLocation {
 
 export interface FeishuAdapterConfigTemplateInput {
   workSurfaceBaseToken?: string | null;
+  workSurfaceBaseTokenRef?: string | null;
   workSurfaceIdentity?: FeishuIdentity;
   workSurfaceTableNames?: Partial<FeishuWorkSurfaceTableNames>;
   workSurfaceFieldNames?: {
@@ -384,12 +386,15 @@ export async function resolveFeishuWorkSurfaceBinding(input: {
 
   const baseToken =
     asString(input.baseToken) ??
-    asString(env.FEISHU_BASE_TOKEN) ??
+    asString(env[FEISHU_WORK_SURFACE_BASE_TOKEN_ENV]) ??
     asString(workSurface?.base_token) ??
     (workSurface?.base_token_ref
       ? readEnvRef(workSurface.base_token_ref, env, "work_surface.base_token_ref")
-      : null) ??
-    DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN;
+      : null);
+
+  if (!baseToken) {
+    throw new Error(`missing-feishu-work-surface-base-token:${FEISHU_WORK_SURFACE_BASE_TOKEN_ENV}`);
+  }
 
   return {
     baseToken,
@@ -468,9 +473,12 @@ export function renderFeishuAdapterConfigYaml(
     input.workSurfaceFieldNames?.projects,
   );
 
+  const baseToken = asString(input.workSurfaceBaseToken);
+  const baseTokenRef = asString(input.workSurfaceBaseTokenRef) ?? DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN_REF;
+
   const lines = [
     "work_surface:",
-    `  base_token: ${asString(input.workSurfaceBaseToken) ?? DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN}`,
+    baseToken ? `  base_token: ${baseToken}` : `  base_token_ref: ${baseTokenRef}`,
     `  identity: ${input.workSurfaceIdentity ?? "bot"}`,
     "  table_binding:",
     `    projection: ${tableNames.projection}`,

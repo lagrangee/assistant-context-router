@@ -371,7 +371,7 @@ review:
   - 当前若 binding 指向非 Feishu transport，会安全退回 `record_only`
 
 当前仍保留的实现期债务包括：
-- 若没有显式 config host，work-surface path 仍会保守回退到当前 code-level default Base token
+- 若没有 `FEISHU_BASE_TOKEN` 或显式 config host，work-surface path 会 fail closed
 - table / field binding 目前仍以内置 default 为主，只是已有统一宿主
 - 当前 `governance default_target` 仍只覆盖 global runtime binding，project-owned override 尚未进入实现
 

@@ -7,6 +7,7 @@ import {
   resolveDefaultFeishuProjectCatalogSyncOptions,
   runFeishuProjectCatalogSync,
 } from "../../adapters/feishu/src/project-catalog-sync.ts";
+import { FEISHU_WORK_SURFACE_BASE_TOKEN_ENV } from "../../adapters/feishu/src/config-host.ts";
 import { makeTempProjectWorkspace } from "../test-helpers.ts";
 
 function createStubRunner(fixtures?: {
@@ -77,8 +78,11 @@ function makeDefaultFields() {
 }
 
 test("resolveDefaultFeishuProjectCatalogSyncOptions reuses work-surface binding defaults", async () => {
-  const binding = await resolveDefaultFeishuProjectCatalogSyncOptions({ env: {} });
+  const binding = await resolveDefaultFeishuProjectCatalogSyncOptions({
+    env: { [FEISHU_WORK_SURFACE_BASE_TOKEN_ENV]: "base-token" },
+  });
 
+  assert.equal(binding.baseToken, "base-token");
   assert.equal(binding.tableName, "Projects");
   assert.equal(binding.fieldNames?.project_id, "Project ID");
   assert.equal(binding.fieldNames?.project_name, "项目名称");

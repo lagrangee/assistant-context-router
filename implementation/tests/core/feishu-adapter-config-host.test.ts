@@ -8,7 +8,8 @@ import {
   DEFAULT_FEISHU_CONFIG_DIRNAME,
   DEFAULT_FEISHU_CONFIG_FILENAME,
   DEFAULT_FEISHU_CONFIG_PATH_ENV,
-  DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN,
+  DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN_REF,
+  FEISHU_WORK_SURFACE_BASE_TOKEN_ENV,
   loadFeishuAdapterConfig,
   renderFeishuAdapterConfigYaml,
   resolveDefaultFeishuConfigPathForDataDir,
@@ -25,10 +26,21 @@ async function makeTempConfig(contents: string): Promise<string> {
   return configPath;
 }
 
-test("resolveFeishuWorkSurfaceBinding falls back to code defaults without a config host", async () => {
-  const binding = await resolveFeishuWorkSurfaceBinding({ env: {} });
+test("resolveFeishuWorkSurfaceBinding fails closed without a base token source", async () => {
+  await assert.rejects(
+    () => resolveFeishuWorkSurfaceBinding({ env: {} }),
+    /missing-feishu-work-surface-base-token:FEISHU_BASE_TOKEN/,
+  );
+});
 
-  assert.equal(binding.baseToken, DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN);
+test("resolveFeishuWorkSurfaceBinding honors FEISHU_BASE_TOKEN env override", async () => {
+  const binding = await resolveFeishuWorkSurfaceBinding({
+    env: {
+      [FEISHU_WORK_SURFACE_BASE_TOKEN_ENV]: "env-base-token",
+    },
+  });
+
+  assert.equal(binding.baseToken, "env-base-token");
   assert.equal(binding.identity, "bot");
   assert.equal(binding.tableNames.projection, "Work Surface Snapshots");
   assert.equal(binding.tableNames.projects, "Projects");
@@ -37,16 +49,6 @@ test("resolveFeishuWorkSurfaceBinding falls back to code defaults without a conf
   assert.equal(binding.fieldNames.projects.project_name, "项目名称");
   assert.equal(binding.fieldNames.projects.objective, "目标");
   assert.equal(binding.relationWriteMode, "record_id_array");
-});
-
-test("resolveFeishuWorkSurfaceBinding honors FEISHU_BASE_TOKEN env override", async () => {
-  const binding = await resolveFeishuWorkSurfaceBinding({
-    env: {
-      FEISHU_BASE_TOKEN: "env-base-token",
-    },
-  });
-
-  assert.equal(binding.baseToken, "env-base-token");
 });
 
 test("resolveFeishuWorkSurfaceBinding loads explicit config host and env refs", async () => {
@@ -213,9 +215,9 @@ test("writeFeishuAdapterConfigFile writes default file under dataDir", async () 
 
 test("writeFeishuAdapterConfigFile refuses to overwrite without force", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "acr-feishu-existing-data-dir-"));
-  await writeFeishuAdapterConfigFile({
-    dataDir,
-  });
+  const writtenPath = await writeFeishuAdapterConfigFile({ dataDir });
+  const raw = await readFile(writtenPath, "utf8");
+  assert.match(raw, new RegExp(`base_token_ref: ${DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN_REF}`));
 
   await assert.rejects(
     () =>

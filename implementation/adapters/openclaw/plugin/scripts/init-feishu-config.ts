@@ -4,7 +4,7 @@ import process from "node:process";
 
 import {
   DEFAULT_FEISHU_CONFIG_FILENAME,
-  DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN,
+  DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN_REF,
   DEFAULT_GOVERNANCE_TARGET_REF,
   writeFeishuAdapterConfigFile,
 } from "../../../feishu/src/config-host.ts";
@@ -12,7 +12,7 @@ import {
 interface ParsedArgs {
   dataDir: string;
   force: boolean;
-  baseToken: string;
+  baseToken: string | null;
   governanceTargetRef: string;
 }
 
@@ -23,7 +23,8 @@ function usage(): string {
     "Defaults:",
     `- dataDir: ${path.join(os.homedir(), ".openclaw", "assistant-context-router")}`,
     `- file: ${DEFAULT_FEISHU_CONFIG_FILENAME}`,
-    `- base token: current explicit work-surface default (${DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN})`,
+    `- base token: no token is written unless --base-token is provided`,
+    `- base token ref: ${DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN_REF}`,
     `- governance target ref: ${DEFAULT_GOVERNANCE_TARGET_REF}`,
   ].join("\n");
 }
@@ -43,7 +44,7 @@ function requireStringFlag(
 function parseArgs(argv = process.argv.slice(2)): ParsedArgs {
   let dataDir = path.join(os.homedir(), ".openclaw", "assistant-context-router");
   let force = false;
-  let baseToken = DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN;
+  let baseToken: string | null = null;
   let governanceTargetRef = DEFAULT_GOVERNANCE_TARGET_REF;
 
   for (let index = 0; index < argv.length; ) {
@@ -85,13 +86,13 @@ async function main() {
   const configPath = await writeFeishuAdapterConfigFile({
     dataDir: parsed.dataDir,
     force: parsed.force,
-      template: {
-        workSurfaceBaseToken: parsed.baseToken,
-        governanceTarget: {
-          target_ref: parsed.governanceTargetRef,
-        },
+    template: {
+      workSurfaceBaseToken: parsed.baseToken,
+      governanceTarget: {
+        target_ref: parsed.governanceTargetRef,
       },
-    });
+    },
+  });
 
   process.stdout.write(
     `${JSON.stringify(

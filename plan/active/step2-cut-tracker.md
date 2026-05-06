@@ -526,7 +526,7 @@ Gate 5 validation prep：
     - 未传 `project_id` 时使用当前 `/project` binding
     - `/project` 已成为唯一公开命令入口；不再保留旧命令 alias
     - default runner 会先解析 `<plugin dataDir>/assistant-context-router/feishu-adapter.yaml`
-    - 若没有显式 binding，现阶段仍保守回退到已确认的 Base token；`FEISHU_BASE_TOKEN` 仅作 override
+    - 若没有显式 binding 或 `FEISHU_BASE_TOKEN`，work-surface path 会 fail closed
     - TUI command path 会直接返回 friendly sync error text，不再吞成 generic failure
   - plugin 已新增 optional `workSurfaceProjectionObserver`
     - 直接承接真实 signal 链产出的 snapshot

@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { writeWorkSurfaceProjectionSnapshot } from "../../core/src/routing/work-surface-projection.ts";
 import {
-  DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN,
+  FEISHU_WORK_SURFACE_BASE_TOKEN_ENV,
   createFeishuWorkSurfaceProjectionObserver,
   parseFeishuWorkSurfaceManualSyncArgs,
   runFeishuWorkSurfaceManualSync,
@@ -214,18 +214,17 @@ async function makeTempDataDir(): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), "acr-feishu-sync-"));
 }
 
-test("manual sync arg parser falls back to the default base token and dry-run by default", () => {
-  const parsed = parseFeishuWorkSurfaceManualSyncArgs(["--project-id", "proj-bitable-pm-system"], {});
-
-  assert.equal(parsed.projectId, "proj-bitable-pm-system");
-  assert.equal(parsed.baseToken, DEFAULT_FEISHU_WORK_SURFACE_BASE_TOKEN);
-  assert.equal(parsed.apply, false);
+test("manual sync arg parser requires an explicit base token source", () => {
+  assert.throws(
+    () => parseFeishuWorkSurfaceManualSyncArgs(["--project-id", "proj-bitable-pm-system"], {}),
+    /missing-required-flag:--base-token-or-FEISHU_BASE_TOKEN/,
+  );
 });
 
 test("manual sync arg parser still accepts env override", () => {
   const parsed = parseFeishuWorkSurfaceManualSyncArgs(
     ["--project-id", "proj-bitable-pm-system"],
-    { FEISHU_BASE_TOKEN: "base-from-env" },
+    { [FEISHU_WORK_SURFACE_BASE_TOKEN_ENV]: "base-from-env" },
   );
 
   assert.equal(parsed.projectId, "proj-bitable-pm-system");
