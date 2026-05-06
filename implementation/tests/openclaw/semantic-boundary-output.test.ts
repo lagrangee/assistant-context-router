@@ -3,16 +3,17 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-import { createAssistantContextRouterPlugin } from "../../adapters/openclaw/plugin/src/index.ts";
 import { writeFeishuAdapterConfigFile } from "../../adapters/feishu/src/config-host.ts";
 import { projectSessionEventPath } from "../../core/src/routing/project-session-lane.ts";
 import { readBusinessNotificationDeliveryRecords } from "../../core/src/state/business-notification-delivery-outbox.ts";
 import { readGovernanceDeliveryRecords } from "../../core/src/state/governance-delivery-outbox.ts";
 import { createSessionProjectStore } from "../../core/src/state/session-project-store.ts";
 import { makeTempProjectWorkspace, writeRuntimeBindingsConfig } from "../test-helpers.ts";
+import { registerOpenClawTestPlugin } from "./openclaw-test-helpers.ts";
 
-test("llm_output captures pending semantic complete boundary and routes it through writeback", async () => {
-  const workspace = await makeTempProjectWorkspace();
+type TempWorkspace = Awaited<ReturnType<typeof makeTempProjectWorkspace>>;
+
+async function writeCompleteRouter(workspace: TempWorkspace) {
   await writeFile(
     path.join(workspace.root, "projects", "delivery", "sample-project", "router.yaml"),
     `actions:
@@ -22,7 +23,16 @@ test("llm_output captures pending semantic complete boundary and routes it throu
     requires_resolved_project: true
 `,
   );
+}
 
+async function seedPendingSemanticExecution(
+  workspace: TempWorkspace,
+  input: {
+    traceId: string;
+    taskRecordId?: string | null;
+    bugRecordId?: string | null;
+  },
+) {
   const store = createSessionProjectStore({ dataDir: workspace.dataDir });
   await store.set("agent:main:main", {
     pending_semantic_execution: {
@@ -30,118 +40,15 @@ test("llm_output captures pending semantic complete boundary and routes it throu
       project_id: "proj-sample",
       action_name: "dispatch",
       workflow: "dispatch",
-      trace_id: "trace-semantic-dispatch-001",
-      task_record_id: "rec-task-semantic-loop",
-      bug_record_id: null,
+      trace_id: input.traceId,
+      task_record_id: input.taskRecordId ?? null,
+      bug_record_id: input.bugRecordId ?? null,
     },
   });
+  return store;
+}
 
-  const serviceRequests: unknown[] = [];
-  const writebacks: Array<{
-    projectId: string;
-    actionName: string | null;
-    taskRecordId: unknown;
-    workSurfaceAction: unknown;
-  }> = [];
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-    serviceHandlers: {
-      complete: async (request) => {
-        serviceRequests.push(request);
-        return {
-          status: "ok",
-          result_kind: "accepted",
-          work_surface_action: "complete",
-          summary: String(request.parameters?.summary ?? "completed"),
-          reply_payload: "Completion boundary accepted",
-          needs_escalation: false,
-          escalation_reason: null,
-        };
-      },
-    },
-    taskBugWritebackObserver: async (input) => {
-      writebacks.push({
-        projectId: input.projectId,
-        actionName: input.envelope.action_name,
-        taskRecordId: input.envelope.parameters?.task_record_id,
-        workSurfaceAction: input.serviceResult.work_surface_action,
-      });
-    },
-  });
-
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const llmOutput = handlers.get("llm_output");
-  assert.ok(llmOutput);
-
-  await llmOutput(
-    {
-      assistantTexts: [
-        [
-          "Work reached the completion boundary.",
-          "",
-          "[ACR_AUTOMATION]",
-          JSON.stringify(
-            {
-              channel: "openclaw",
-              payload: {
-                source_type: "agent",
-                project_id: "proj-sample",
-                action_name: "complete",
-                workflow: "dispatch",
-                parameters: {
-                  task_record_id: "rec-task-semantic-loop",
-                  summary: "Semantic work finished automatically.",
-                  evidence: "The main session completed the requested semantic work.",
-                },
-                trace_id: "semantic-complete-trace-001",
-                message_id: "semantic-complete-msg-001",
-              },
-            },
-            null,
-            2,
-          ),
-          "[/ACR_AUTOMATION]",
-        ].join("\n"),
-      ],
-    },
-    { sessionKey: "agent:main:main" },
-  );
-
-  assert.equal(serviceRequests.length, 1);
-  assert.equal(writebacks.length, 1);
-  assert.deepEqual(writebacks[0], {
-    projectId: "proj-sample",
-    actionName: "complete",
-    taskRecordId: "rec-task-semantic-loop",
-    workSurfaceAction: "complete",
-  });
-
-  const state = await store.get("agent:main:main");
-  assert.equal(state?.pending_semantic_execution, null);
-});
-
-test("llm_output completion boundary uses row completion DM policy without creating governance truth", async () => {
-  const workspace = await makeTempProjectWorkspace();
-  await writeFile(
-    path.join(workspace.root, "projects", "delivery", "sample-project", "router.yaml"),
-    `actions:
-  complete:
-    target_kind: service
-    workflow: dispatch
-    requires_resolved_project: true
-`,
-  );
+async function writeCompletionDmRuntimeBindings(workspace: TempWorkspace) {
   await writeFeishuAdapterConfigFile({
     dataDir: workspace.dataDir,
     template: {
@@ -150,7 +57,7 @@ test("llm_output completion boundary uses row completion DM policy without creat
       },
     },
   });
-  const runtimeBindingsPath = await writeRuntimeBindingsConfig({
+  return writeRuntimeBindingsConfig({
     root: workspace.root,
     bindings: [
       {
@@ -173,35 +80,141 @@ test("llm_output completion boundary uses row completion DM policy without creat
       },
     ],
   });
+}
 
-  const store = createSessionProjectStore({ dataDir: workspace.dataDir });
-  await store.set("agent:main:main", {
-    pending_semantic_execution: {
-      created_at: "2026-04-26T13:00:00.000Z",
-      project_id: "proj-sample",
-      action_name: "dispatch",
-      workflow: "dispatch",
-      trace_id: "trace-semantic-dispatch-002",
-      task_record_id: "rec-task-completion-dm",
-      bug_record_id: null,
+function makeCompleteBoundaryText(input: {
+  parameters: Record<string, unknown>;
+  traceId: string;
+  messageId: string;
+}) {
+  return [
+    "[ACR_AUTOMATION]",
+    JSON.stringify({
+      channel: "openclaw",
+      payload: {
+        source_type: "agent",
+        project_id: "proj-sample",
+        action_name: "complete",
+        workflow: "dispatch",
+        parameters: input.parameters,
+        trace_id: input.traceId,
+        message_id: input.messageId,
+      },
+    }),
+    "[/ACR_AUTOMATION]",
+  ].join("\n");
+}
+
+function acceptedCompleteResult(summary: string) {
+  return {
+    status: "ok" as const,
+    result_kind: "accepted" as const,
+    work_surface_action: "complete" as const,
+    summary,
+    reply_payload: "Completion boundary accepted",
+    needs_escalation: false,
+    escalation_reason: null,
+  };
+}
+
+function rowCompletionDmPolicy() {
+  return {
+    acceptance_mode: "manual_acceptance",
+    completion_notify_mode: "dm_on_completion_boundary",
+    start_mode: "manual_only",
+    acceptance_mode_source: "row_override",
+    completion_notify_mode_source: "row_override",
+    start_mode_source: "builtin_default",
+    row_acceptance_mode: "manual_acceptance",
+    row_completion_notify_mode: "dm_on_completion_boundary",
+  };
+}
+
+test("llm_output captures pending semantic complete boundary and routes it through writeback", async () => {
+  const workspace = await makeTempProjectWorkspace();
+  await writeCompleteRouter(workspace);
+  const store = await seedPendingSemanticExecution(workspace, {
+    traceId: "trace-semantic-dispatch-001",
+    taskRecordId: "rec-task-semantic-loop",
+  });
+
+  const serviceRequests: unknown[] = [];
+  const writebacks: Array<{
+    projectId: string;
+    actionName: string | null;
+    taskRecordId: unknown;
+    workSurfaceAction: unknown;
+  }> = [];
+  const { llmOutput } = await registerOpenClawTestPlugin({
+    registryPath: workspace.registryPath,
+    dataDir: workspace.dataDir,
+    serviceHandlers: {
+      complete: async (request) => {
+        serviceRequests.push(request);
+        return acceptedCompleteResult(String(request.parameters?.summary ?? "completed"));
+      },
+    },
+    taskBugWritebackObserver: async (input) => {
+      writebacks.push({
+        projectId: input.projectId,
+        actionName: input.envelope.action_name,
+        taskRecordId: input.envelope.parameters?.task_record_id,
+        workSurfaceAction: input.serviceResult.work_surface_action,
+      });
     },
   });
 
+  await llmOutput(
+    {
+      assistantTexts: [
+        [
+          "Work reached the completion boundary.",
+          "",
+          makeCompleteBoundaryText({
+            parameters: {
+              task_record_id: "rec-task-semantic-loop",
+              summary: "Semantic work finished automatically.",
+              evidence: "The main session completed the requested semantic work.",
+            },
+            traceId: "semantic-complete-trace-001",
+            messageId: "semantic-complete-msg-001",
+          }),
+        ].join("\n"),
+      ],
+    },
+    { sessionKey: "agent:main:main" },
+  );
+
+  assert.equal(serviceRequests.length, 1);
+  assert.equal(writebacks.length, 1);
+  assert.deepEqual(writebacks[0], {
+    projectId: "proj-sample",
+    actionName: "complete",
+    taskRecordId: "rec-task-semantic-loop",
+    workSurfaceAction: "complete",
+  });
+
+  const state = await store.get("agent:main:main");
+  assert.equal(state?.pending_semantic_execution, null);
+});
+
+test("llm_output completion boundary uses row completion DM policy without creating governance truth", async () => {
+  const workspace = await makeTempProjectWorkspace();
+  await writeCompleteRouter(workspace);
+  const runtimeBindingsPath = await writeCompletionDmRuntimeBindings(workspace);
+  await seedPendingSemanticExecution(workspace, {
+    traceId: "trace-semantic-dispatch-002",
+    taskRecordId: "rec-task-completion-dm",
+  });
+
   const sentMessages: Array<{ to: string; text: string; accountId?: string | null }> = [];
-  const plugin = createAssistantContextRouterPlugin({
+  const { llmOutput } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     runtimeBindingsPath,
     serviceHandlers: {
-      complete: async (request) => ({
-        status: "ok",
-        result_kind: "accepted",
-        work_surface_action: "complete",
-        summary: String(request.parameters?.summary ?? "completed"),
-        reply_payload: "Completion boundary accepted",
-        needs_escalation: false,
-        escalation_reason: null,
-      }),
+      complete: async (request) =>
+        acceptedCompleteResult(String(request.parameters?.summary ?? "completed")),
     },
     taskBugWritebackObserver: async () => ({
       mode: "apply",
@@ -213,26 +226,11 @@ test("llm_output completion boundary uses row completion DM policy without creat
           reason: "completion_boundary",
           status_before: "Doing",
           fields: {},
-          policy: {
-            acceptance_mode: "manual_acceptance",
-            completion_notify_mode: "dm_on_completion_boundary",
-            start_mode: "manual_only",
-            acceptance_mode_source: "row_override",
-            completion_notify_mode_source: "row_override",
-            start_mode_source: "builtin_default",
-            row_acceptance_mode: "manual_acceptance",
-            row_completion_notify_mode: "dm_on_completion_boundary",
-          },
+          policy: rowCompletionDmPolicy(),
         },
       ],
     }),
-  });
-
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
+  }, {
     runtime: {
       config: {
         loadConfig: () => ({}),
@@ -258,37 +256,21 @@ test("llm_output completion boundary uses row completion DM policy without creat
         },
       },
     },
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
   });
-
-  const llmOutput = handlers.get("llm_output");
-  assert.ok(llmOutput);
 
   await llmOutput(
     {
       assistantTexts: [
         [
-          "[ACR_AUTOMATION]",
-          JSON.stringify({
-            channel: "openclaw",
-            payload: {
-              source_type: "agent",
-              project_id: "proj-sample",
-              action_name: "complete",
-              workflow: "dispatch",
-              parameters: {
-                task_record_id: "rec-task-completion-dm",
-                summary: "Semantic work finished automatically.",
-                evidence: "The main session completed the requested semantic work.",
-              },
-              trace_id: "semantic-complete-trace-002",
-              message_id: "semantic-complete-msg-002",
+          makeCompleteBoundaryText({
+            parameters: {
+              task_record_id: "rec-task-completion-dm",
+              summary: "Semantic work finished automatically.",
+              evidence: "The main session completed the requested semantic work.",
             },
+            traceId: "semantic-complete-trace-002",
+            messageId: "semantic-complete-msg-002",
           }),
-          "[/ACR_AUTOMATION]",
         ].join("\n"),
       ],
     },
@@ -322,58 +304,11 @@ test("llm_output completion boundary uses row completion DM policy without creat
 
 test("llm_output completion boundary falls back to OpenClaw session when wechat direct send fails", async () => {
   const workspace = await makeTempProjectWorkspace();
-  await writeFile(
-    path.join(workspace.root, "projects", "delivery", "sample-project", "router.yaml"),
-    `actions:
-  complete:
-    target_kind: service
-    workflow: dispatch
-    requires_resolved_project: true
-`,
-  );
-  await writeFeishuAdapterConfigFile({
-    dataDir: workspace.dataDir,
-    template: {
-      governanceTarget: {
-        target_ref: "local:human_dm",
-      },
-    },
-  });
-  const runtimeBindingsPath = await writeRuntimeBindingsConfig({
-    root: workspace.root,
-    bindings: [
-      {
-        binding_id: "human-dm",
-        runtime_kind: "openclaw",
-        canonical_session_key: "main:human",
-        aliases: ["wechat:dm:human"],
-      },
-    ],
-    channelTargets: [
-      {
-        binding_id: "human-dm",
-        channel_type: "wechat",
-        target_kind: "dm",
-        target_ref: "user@example.invalid",
-        delivery_mode: "direct",
-        aliases: ["local:human_dm", "wechat:dm:human"],
-        runtime_channel_id: "openclaw-direct-message",
-        account_id: "account-test",
-      },
-    ],
-  });
-
-  const store = createSessionProjectStore({ dataDir: workspace.dataDir });
-  await store.set("agent:main:main", {
-    pending_semantic_execution: {
-      created_at: "2026-04-26T13:00:00.000Z",
-      project_id: "proj-sample",
-      action_name: "dispatch",
-      workflow: "dispatch",
-      trace_id: "trace-semantic-dispatch-003",
-      task_record_id: "rec-task-completion-dm-fallback",
-      bug_record_id: null,
-    },
+  await writeCompleteRouter(workspace);
+  const runtimeBindingsPath = await writeCompletionDmRuntimeBindings(workspace);
+  await seedPendingSemanticExecution(workspace, {
+    traceId: "trace-semantic-dispatch-003",
+    taskRecordId: "rec-task-completion-dm-fallback",
   });
 
   const directAttempts: Array<{ to: string; text: string; accountId?: string | null }> = [];
@@ -382,20 +317,13 @@ test("llm_output completion boundary falls back to OpenClaw session when wechat 
     sessionKey: string;
     contextKey?: string | null;
   }> = [];
-  const plugin = createAssistantContextRouterPlugin({
+  const { llmOutput } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     runtimeBindingsPath,
     serviceHandlers: {
-      complete: async (request) => ({
-        status: "ok",
-        result_kind: "accepted",
-        work_surface_action: "complete",
-        summary: String(request.parameters?.summary ?? "completed"),
-        reply_payload: "Completion boundary accepted",
-        needs_escalation: false,
-        escalation_reason: null,
-      }),
+      complete: async (request) =>
+        acceptedCompleteResult(String(request.parameters?.summary ?? "completed")),
     },
     taskBugWritebackObserver: async () => ({
       mode: "apply",
@@ -407,26 +335,11 @@ test("llm_output completion boundary falls back to OpenClaw session when wechat 
           reason: "completion_boundary",
           status_before: "Doing",
           fields: {},
-          policy: {
-            acceptance_mode: "manual_acceptance",
-            completion_notify_mode: "dm_on_completion_boundary",
-            start_mode: "manual_only",
-            acceptance_mode_source: "row_override",
-            completion_notify_mode_source: "row_override",
-            start_mode_source: "builtin_default",
-            row_acceptance_mode: "manual_acceptance",
-            row_completion_notify_mode: "dm_on_completion_boundary",
-          },
+          policy: rowCompletionDmPolicy(),
         },
       ],
     }),
-  });
-
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
+  }, {
     runtime: {
       config: {
         loadConfig: () => ({}),
@@ -462,37 +375,21 @@ test("llm_output completion boundary falls back to OpenClaw session when wechat 
         },
       },
     },
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
   });
-
-  const llmOutput = handlers.get("llm_output");
-  assert.ok(llmOutput);
 
   await llmOutput(
     {
       assistantTexts: [
         [
-          "[ACR_AUTOMATION]",
-          JSON.stringify({
-            channel: "openclaw",
-            payload: {
-              source_type: "agent",
-              project_id: "proj-sample",
-              action_name: "complete",
-              workflow: "dispatch",
-              parameters: {
-                task_record_id: "rec-task-completion-dm-fallback",
-                summary: "Semantic work finished automatically.",
-                evidence: "The main session completed the requested semantic work.",
-              },
-              trace_id: "semantic-complete-trace-003",
-              message_id: "semantic-complete-msg-003",
+          makeCompleteBoundaryText({
+            parameters: {
+              task_record_id: "rec-task-completion-dm-fallback",
+              summary: "Semantic work finished automatically.",
+              evidence: "The main session completed the requested semantic work.",
             },
+            traceId: "semantic-complete-trace-003",
+            messageId: "semantic-complete-msg-003",
           }),
-          "[/ACR_AUTOMATION]",
         ].join("\n"),
       ],
     },
@@ -520,63 +417,16 @@ test("llm_output completion boundary falls back to OpenClaw session when wechat 
 
 test("llm_output bug completion boundary preserves fix_result and can notify configured human DM", async () => {
   const workspace = await makeTempProjectWorkspace();
-  await writeFile(
-    path.join(workspace.root, "projects", "delivery", "sample-project", "router.yaml"),
-    `actions:
-  complete:
-    target_kind: service
-    workflow: dispatch
-    requires_resolved_project: true
-`,
-  );
-  await writeFeishuAdapterConfigFile({
-    dataDir: workspace.dataDir,
-    template: {
-      governanceTarget: {
-        target_ref: "local:human_dm",
-      },
-    },
-  });
-  const runtimeBindingsPath = await writeRuntimeBindingsConfig({
-    root: workspace.root,
-    bindings: [
-      {
-        binding_id: "human-dm",
-        runtime_kind: "openclaw",
-        canonical_session_key: "main:human",
-        aliases: ["wechat:dm:human"],
-      },
-    ],
-    channelTargets: [
-      {
-        binding_id: "human-dm",
-        channel_type: "wechat",
-        target_kind: "dm",
-        target_ref: "user@example.invalid",
-        delivery_mode: "direct",
-        aliases: ["local:human_dm", "wechat:dm:human"],
-        runtime_channel_id: "openclaw-direct-message",
-        account_id: "account-test",
-      },
-    ],
-  });
-
-  const store = createSessionProjectStore({ dataDir: workspace.dataDir });
-  await store.set("agent:main:main", {
-    pending_semantic_execution: {
-      created_at: "2026-04-26T13:00:00.000Z",
-      project_id: "proj-sample",
-      action_name: "dispatch",
-      workflow: "dispatch",
-      trace_id: "trace-bug-semantic-dispatch-001",
-      task_record_id: null,
-      bug_record_id: "rec-bug-completion-dm",
-    },
+  await writeCompleteRouter(workspace);
+  const runtimeBindingsPath = await writeCompletionDmRuntimeBindings(workspace);
+  await seedPendingSemanticExecution(workspace, {
+    traceId: "trace-bug-semantic-dispatch-001",
+    bugRecordId: "rec-bug-completion-dm",
   });
 
   const serviceRequests: Array<{ parameters: Record<string, unknown> | null }> = [];
   const sentMessages: Array<{ to: string; text: string; accountId?: string | null }> = [];
-  const plugin = createAssistantContextRouterPlugin({
+  const { llmOutput } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     runtimeBindingsPath,
@@ -611,26 +461,11 @@ test("llm_output bug completion boundary preserves fix_result and can notify con
             step_result: "need_review",
             修复结果: input.envelope.parameters?.fix_result,
           },
-          policy: {
-            acceptance_mode: "manual_acceptance",
-            completion_notify_mode: "dm_on_completion_boundary",
-            start_mode: "manual_only",
-            acceptance_mode_source: "row_override",
-            completion_notify_mode_source: "row_override",
-            start_mode_source: "builtin_default",
-            row_acceptance_mode: "manual_acceptance",
-            row_completion_notify_mode: "dm_on_completion_boundary",
-          },
+          policy: rowCompletionDmPolicy(),
         },
       ],
     }),
-  });
-
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
+  }, {
     runtime: {
       config: {
         loadConfig: () => ({}),
@@ -656,37 +491,21 @@ test("llm_output bug completion boundary preserves fix_result and can notify con
         },
       },
     },
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
   });
-
-  const llmOutput = handlers.get("llm_output");
-  assert.ok(llmOutput);
 
   await llmOutput(
     {
       assistantTexts: [
         [
-          "[ACR_AUTOMATION]",
-          JSON.stringify({
-            channel: "openclaw",
-            payload: {
-              source_type: "agent",
-              project_id: "proj-sample",
-              action_name: "complete",
-              workflow: "dispatch",
-              parameters: {
-                summary: "Bug fix is ready for human acceptance.",
-                evidence: "Regression evidence confirms the original repro is resolved.",
-                fix_result: "Fixed",
-              },
-              trace_id: "semantic-bug-complete-trace-001",
-              message_id: "semantic-bug-complete-msg-001",
+          makeCompleteBoundaryText({
+            parameters: {
+              summary: "Bug fix is ready for human acceptance.",
+              evidence: "Regression evidence confirms the original repro is resolved.",
+              fix_result: "Fixed",
             },
+            traceId: "semantic-bug-complete-trace-001",
+            messageId: "semantic-bug-complete-msg-001",
           }),
-          "[/ACR_AUTOMATION]",
         ].join("\n"),
       ],
     },
@@ -725,18 +544,10 @@ test("llm_output bug completion boundary preserves fix_result and can notify con
 
 test("llm_output ignores semantic boundary blocks when no pending execution exists", async () => {
   const workspace = await makeTempProjectWorkspace();
-  await writeFile(
-    path.join(workspace.root, "projects", "delivery", "sample-project", "router.yaml"),
-    `actions:
-  complete:
-    target_kind: service
-    workflow: dispatch
-    requires_resolved_project: true
-`,
-  );
+  await writeCompleteRouter(workspace);
 
   const serviceRequests: unknown[] = [];
-  const plugin = createAssistantContextRouterPlugin({
+  const { llmOutput } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -758,40 +569,17 @@ test("llm_output ignores semantic boundary blocks when no pending execution exis
     },
   });
 
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const llmOutput = handlers.get("llm_output");
-  assert.ok(llmOutput);
-
   await llmOutput(
     {
       assistantTexts: [
         [
-          "[ACR_AUTOMATION]",
-          JSON.stringify({
-            channel: "openclaw",
-            payload: {
-              source_type: "agent",
-              project_id: "proj-sample",
-              action_name: "complete",
-              workflow: "dispatch",
-              parameters: {
-                task_record_id: "rec-task-semantic-loop",
-              },
-              trace_id: "semantic-complete-trace-ignored",
-              message_id: "semantic-complete-msg-ignored",
+          makeCompleteBoundaryText({
+            parameters: {
+              task_record_id: "rec-task-semantic-loop",
             },
+            traceId: "semantic-complete-trace-ignored",
+            messageId: "semantic-complete-msg-ignored",
           }),
-          "[/ACR_AUTOMATION]",
         ].join("\n"),
       ],
     },

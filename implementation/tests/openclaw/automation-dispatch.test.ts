@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createAssistantContextRouterPlugin } from "../../adapters/openclaw/plugin/src/index.ts";
 import { writeFeishuAdapterConfigFile } from "../../adapters/feishu/src/config-host.ts";
 import { readBusinessNotificationRecords } from "../../core/src/routing/business-notification-log.ts";
 import { projectSessionEventPath } from "../../core/src/routing/project-session-lane.ts";
@@ -18,6 +17,7 @@ import {
   makeTempProjectWorkspace,
   writeRuntimeBindingsConfig,
 } from "../test-helpers.ts";
+import { registerOpenClawTestPlugin } from "./openclaw-test-helpers.ts";
 
 async function readStoredRouteTrace(dataDir: string, sessionKey: string): Promise<{
   trace_id?: string | null;
@@ -52,23 +52,20 @@ async function readStoredRouteTrace(dataDir: string, sessionKey: string): Promis
   return parsed.sessions?.[sessionKey]?.last_route_trace ?? null;
 }
 
-test("demo-acr append_project_note fixture falls back to shadow lane when openclaw runtime system API is unavailable", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+async function registerDefaultBeforeDispatch(workspace: {
+  registryPath: string;
+  dataDir: string;
+}) {
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
+  return beforeDispatch;
+}
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
+test("demo-acr append_project_note fixture falls back to shadow lane when openclaw runtime system API is unavailable", async () => {
+  const workspace = await makeDemoAcrWorkspace();
+  const beforeDispatch = await registerDefaultBeforeDispatch(workspace);
 
   const fixture = await loadDemoAcrFixture("append-note");
   const result = await beforeDispatch?.(fixture);
@@ -84,164 +81,7 @@ test("demo-acr append_project_note fixture falls back to shadow lane when opencl
   assert.match(log, /"delivery_result":\{"status":"failed"/);
 });
 
-test("structured automation wrapper routes append_project_note as project_session instead of human chat text", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const fixture = await loadDemoAcrFixture("append-note");
-  const wrappedMessage = `[ACR_AUTOMATION]\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
-  const result = await beforeDispatch?.({
-    content: wrappedMessage,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.equal(result?.text, undefined);
-
-  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
-  const log = await readFile(lanePath, "utf8");
-  assert.match(log, /append_project_note/);
-  assert.match(log, /missing_openclaw_runtime_system_api/);
-});
-
-test("structured automation wrapper survives leading host metadata prefix stripping", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const fixture = await loadDemoAcrFixture("append-note");
-  const wrappedMessage = `[host-meta] [ACR_AUTOMATION]\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
-  const result = await beforeDispatch?.({
-    content: wrappedMessage,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.equal(result?.text, undefined);
-
-  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
-  const log = await readFile(lanePath, "utf8");
-  assert.match(log, /append_project_note/);
-  assert.match(log, /missing_openclaw_runtime_system_api/);
-});
-
-test("structured automation wrapper survives non-bracketed host preamble", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const fixture = await loadDemoAcrFixture("append-note");
-  const wrappedMessage = `sender=automation-bot\nchat=automation-ingress\n[ACR_AUTOMATION]\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
-  const result = await beforeDispatch?.({
-    content: wrappedMessage,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.equal(result?.text, undefined);
-
-  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
-  const log = await readFile(lanePath, "utf8");
-  assert.match(log, /append_project_note/);
-  assert.match(log, /missing_openclaw_runtime_system_api/);
-});
-
-test("structured automation wrapper survives Feishu text content envelope", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const fixture = await loadDemoAcrFixture("append-note");
-  const wrappedMessage = `[ACR_AUTOMATION]\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
-  const result = await beforeDispatch?.({
-    content: JSON.stringify({ text: wrappedMessage }),
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.equal(result?.text, undefined);
-
-  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
-  const log = await readFile(lanePath, "utf8");
-  assert.match(log, /append_project_note/);
-  assert.match(log, /missing_openclaw_runtime_system_api/);
-});
-
-test("structured automation wrapper survives Feishu workflow rich post body wrapper", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
+test("automation ingress routes supported append_project_note host wrappers", async () => {
   const fixture = await loadDemoAcrFixture("append-note");
   const wrappedMessage = `[ACR_AUTOMATION]\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
   const richPost = JSON.stringify({
@@ -268,161 +108,128 @@ test("structured automation wrapper survives Feishu workflow rich post body wrap
       ],
     }),
   });
-  const result = await beforeDispatch?.({
-    body: `[message_id: om_xxx]\nou_test_sender: ${richPost}`,
-    content: richPost,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
 
-  assert.equal(result?.handled, true);
-  assert.equal(result?.text, undefined);
+  const cases: Array<{
+    name: string;
+    event: Record<string, unknown>;
+  }> = [
+    {
+      name: "plain protocol wrapper",
+      event: {
+        content: wrappedMessage,
+        sessionKey: "agent:main:plain-wrapper",
+        channel: "feishu",
+      },
+    },
+    {
+      name: "leading host metadata prefix",
+      event: {
+        content: `[host-meta] ${wrappedMessage}`,
+        sessionKey: "agent:main:metadata-prefix",
+        channel: "feishu",
+      },
+    },
+    {
+      name: "non-bracketed host preamble",
+      event: {
+        content: `sender=automation-bot\nchat=automation-ingress\n${wrappedMessage}`,
+        sessionKey: "agent:main:host-preamble",
+        channel: "feishu",
+      },
+    },
+    {
+      name: "Feishu text content envelope",
+      event: {
+        content: JSON.stringify({ text: wrappedMessage }),
+        sessionKey: "agent:main:feishu-text",
+        channel: "feishu",
+      },
+    },
+    {
+      name: "Feishu rich post body wrapper",
+      event: {
+        body: `[message_id: om_xxx]\nou_test_sender: ${richPost}`,
+        content: richPost,
+        sessionKey: "agent:main:rich-post",
+        channel: "feishu",
+      },
+    },
+    {
+      name: "zero-width chars and BOM inside wrapper payload",
+      event: {
+        content: `[ACR_AUTOMATION]\n\uFEFF\u200B${JSON.stringify(fixture, null, 2)}\u200D\n[/ACR_AUTOMATION]`,
+        sessionKey: "agent:main:zero-width",
+        channel: "feishu",
+      },
+    },
+    {
+      name: "bare JSON body after host strips wrapper",
+      event: {
+        content: JSON.stringify(fixture, null, 2),
+        sessionKey: "agent:main:bare-json",
+        channel: "feishu",
+      },
+    },
+  ];
 
-  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
-  const log = await readFile(lanePath, "utf8");
-  assert.match(log, /append_project_note/);
-  assert.match(log, /missing_openclaw_runtime_system_api/);
+  for (const testCase of cases) {
+    const workspace = await makeDemoAcrWorkspace();
+    const beforeDispatch = await registerDefaultBeforeDispatch(workspace);
+    const result = await beforeDispatch(testCase.event);
+
+    assert.equal(result?.handled, true, testCase.name);
+    assert.equal(result?.text, undefined, testCase.name);
+
+    const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
+    const log = await readFile(lanePath, "utf8");
+    assert.match(log, /append_project_note/, testCase.name);
+    assert.match(log, /missing_openclaw_runtime_system_api/, testCase.name);
+  }
 });
 
-test("structured automation wrapper survives zero-width chars and BOM inside wrapper payload", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
+test("malformed automation wrappers safe-fail instead of entering normal conversation path", async () => {
   const fixture = await loadDemoAcrFixture("append-note");
-  const wrappedMessage = `[ACR_AUTOMATION]\n\uFEFF\u200B${JSON.stringify(fixture, null, 2)}\u200D\n[/ACR_AUTOMATION]`;
-  const result = await beforeDispatch?.({
-    content: wrappedMessage,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.equal(result?.text, undefined);
-
-  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
-  const log = await readFile(lanePath, "utf8");
-  assert.match(log, /append_project_note/);
-});
-
-test("structured automation wrapper safe-fails when wrapper body contains non-json prelude", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
+  const cases = [
+    {
+      name: "non-json prelude",
+      content: `[ACR_AUTOMATION]\npreview-only\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`,
+      expectsDebugSample: true,
     },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const fixture = await loadDemoAcrFixture("append-note");
-  const wrappedMessage = `[ACR_AUTOMATION]\npreview-only\n${JSON.stringify(fixture, null, 2)}\n[/ACR_AUTOMATION]`;
-  const result = await beforeDispatch?.({
-    content: wrappedMessage,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.match(String(result?.text), /malformed automation message/i);
-
-  const debugPath = path.join(
-    workspace.dataDir,
-    "assistant-context-router",
-    "malformed-automation-messages.jsonl",
-  );
-  const debugLog = await readFile(debugPath, "utf8");
-  assert.match(debugLog, /invalid_protocol_json/);
-  assert.match(debugLog, /resolved_text/);
-});
-
-test("bare automation JSON body still routes append_project_note when host strips protocol wrapper", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
+    {
+      name: "invalid json body",
+      content: `[ACR_AUTOMATION]\n{"payload": {"project_id": "demo-acr", "action_name": "append_project_note"}\n[/ACR_AUTOMATION]`,
+      expectsDebugSample: false,
     },
-  });
+  ];
 
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
+  for (const testCase of cases) {
+    const workspace = await makeDemoAcrWorkspace();
+    const beforeDispatch = await registerDefaultBeforeDispatch(workspace);
+    const result = await beforeDispatch({
+      content: testCase.content,
+      sessionKey: `agent:main:malformed:${testCase.name}`,
+      channel: "feishu",
+    });
 
-  const fixture = await loadDemoAcrFixture("append-note");
-  const bareMessage = JSON.stringify(fixture, null, 2);
-  const result = await beforeDispatch?.({
-    content: bareMessage,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
+    assert.equal(result?.handled, true, testCase.name);
+    assert.match(String(result?.text), /malformed automation message/i, testCase.name);
 
-  assert.equal(result?.handled, true);
-  assert.equal(result?.text, undefined);
-
-  const lanePath = projectSessionEventPath("demo-acr", workspace.dataDir);
-  const log = await readFile(lanePath, "utf8");
-  assert.match(log, /append_project_note/);
-  assert.match(log, /missing_openclaw_runtime_system_api/);
-});
-
-test("malformed structured automation wrapper safe-fails instead of entering normal conversation path", async () => {
-  const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
-    content: `[ACR_AUTOMATION]\n{"payload": {"project_id": "demo-acr", "action_name": "append_project_note"}\n[/ACR_AUTOMATION]`,
-    sessionKey: "agent:main:main",
-    channel: "feishu",
-  });
-
-  assert.equal(result?.handled, true);
-  assert.match(String(result?.text), /malformed automation message/i);
+    if (testCase.expectsDebugSample) {
+      const debugPath = path.join(
+        workspace.dataDir,
+        "assistant-context-router",
+        "malformed-automation-messages.jsonl",
+      );
+      const debugLog = await readFile(debugPath, "utf8");
+      assert.match(debugLog, /invalid_protocol_json/, testCase.name);
+      assert.match(debugLog, /resolved_text/, testCase.name);
+    }
+  }
 });
 
 test("demo-acr dispatch fixture can reply directly to channel and log completion", async () => {
   const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -446,17 +253,6 @@ test("demo-acr dispatch fixture can reply directly to channel and log completion
       }),
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const fixture = await loadDemoAcrFixture("dispatch-ok");
   const sessionKey = "agent:main:demo-acr-dispatch";
@@ -504,7 +300,7 @@ test("demo-acr dispatch fixture can reply directly to channel and log completion
 
 test("direct channel reply includes task record anchor when present", async () => {
   const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -522,17 +318,6 @@ test("direct channel reply includes task record anchor when present", async () =
       }),
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const fixture = await loadDemoAcrFixture("dispatch-ok");
   const payload = fixture.payload as Record<string, unknown>;
@@ -579,7 +364,7 @@ task_bug_policy:
     summary: string | null | undefined;
   }> = [];
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -611,20 +396,6 @@ task_bug_policy:
       });
     },
   });
-
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const result = await beforeDispatch?.({
     channel: "feishu",
@@ -678,7 +449,7 @@ test("structured agent complete message routes through ACR ingress instead of no
     summary: string | null | undefined;
   }> = [];
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -705,20 +476,6 @@ test("structured agent complete message routes through ACR ingress instead of no
       });
     },
   });
-
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const result = await beforeDispatch?.({
     channel: "tui",
@@ -765,7 +522,7 @@ test("work-surface projection observer receives snapshot from the real signal pa
     dataDir?: string;
   }> = [];
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     workSurfaceProjectionObserver: async (input) => {
@@ -797,17 +554,6 @@ test("work-surface projection observer receives snapshot from the real signal pa
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
   const fixture = await loadDemoAcrFixture("dispatch-ok");
   const result = await beforeDispatch?.({
     ...fixture,
@@ -825,7 +571,7 @@ test("work-surface projection observer receives snapshot from the real signal pa
 
 test("work-surface projection observer safe-fails without breaking dispatch", async () => {
   const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     workSurfaceProjectionObserver: async () => {
@@ -847,17 +593,6 @@ test("work-surface projection observer safe-fails without breaking dispatch", as
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
   const fixture = await loadDemoAcrFixture("dispatch-ok");
   const result = await beforeDispatch?.({
     ...fixture,
@@ -877,7 +612,7 @@ test("work-surface projection observer safe-fails without breaking dispatch", as
 test("demo-acr review fixture records review_request signal", async () => {
   const workspace = await makeDemoAcrWorkspace();
   const escalationStore = createMainSessionEscalationStore({ dataDir: workspace.dataDir });
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -900,17 +635,6 @@ test("demo-acr review fixture records review_request signal", async () => {
       }),
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const fixture = await loadDemoAcrFixture("review-request");
   const sessionKey = "agent:main:demo-acr-review";
@@ -972,7 +696,7 @@ test("human decision blocked signal records both business notification and main-
     },
   });
   const escalationStore = createMainSessionEscalationStore({ dataDir: workspace.dataDir });
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -996,17 +720,6 @@ test("human decision blocked signal records both business notification and main-
       }),
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const fixture = await loadDemoAcrFixture("dispatch-ok");
   const sessionKey = "agent:main:demo-acr-dispatch-blocked";
@@ -1084,7 +797,7 @@ test("governance delivery can resolve local wechat target into canonical runtime
   const enqueued: Array<{ text: string; sessionKey: string; contextKey?: string | null }> = [];
   const heartbeatRuns: Array<{ reason?: string; sessionKey?: string; target?: string }> = [];
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     runtimeBindingsPath,
@@ -1102,10 +815,7 @@ test("governance delivery can resolve local wechat target into canonical runtime
         trace_patch: null,
       }),
     },
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
+  }, {
     runtime: {
       system: {
         enqueueSystemEvent(text, options) {
@@ -1129,14 +839,7 @@ test("governance delivery can resolve local wechat target into canonical runtime
         },
       },
     },
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
   });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const fixture = await loadDemoAcrFixture("dispatch-ok");
   const result = await beforeDispatch?.({
@@ -1168,7 +871,7 @@ test("governance delivery can resolve local wechat target into canonical runtime
 
 test("demo-acr unresolved project fixture safe-fails without writing a lane event", async () => {
   const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -1180,17 +883,6 @@ test("demo-acr unresolved project fixture safe-fails without writing a lane even
       }),
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const fixture = await loadDemoAcrFixture("unresolved-project");
   const result = await beforeDispatch?.(fixture);
@@ -1223,25 +915,14 @@ test("configured service route missing handler safe-fails without falling back t
 project_session_binding:
   runtime_kind: openclaw_session
   target_ref: agent:main:demo-acr
-  metadata:
+    metadata:
     note: "Resolved from current OpenClaw sessions store for Step 2.1 runtime rehearsal."
 `,
   );
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const sessionKey = "agent:main:demo-acr-missing-service";
   const fixture = await loadDemoAcrFixture("dispatch-ok");
@@ -1304,21 +985,10 @@ project_session_binding:
   );
 
   const escalationStore = createMainSessionEscalationStore({ dataDir: workspace.dataDir });
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const reviewFixture = await loadDemoAcrFixture("review-request");
   const reviewSessionKey = "agent:main:demo-acr-review-fixture";
@@ -1382,76 +1052,6 @@ project_session_binding:
   );
 });
 
-test("demo-acr validation_fixture bridge keeps high-signal completion off main session by default", async () => {
-  const workspace = await makeCopiedDemoAcrWorkspace();
-  const fixturePath = path.join(workspace.projectRoot, "validation", "service-results.json");
-  await writeFile(
-    path.join(workspace.projectRoot, "router.yaml"),
-    `actions:
-  dispatch:
-    target_kind: service
-    workflow: dispatch
-    requires_resolved_project: true
-  review:
-    target_kind: service
-    workflow: review
-    requires_resolved_project: true
-  append_project_note:
-    target_kind: project_session
-    workflow: general
-    requires_resolved_project: true
-service_binding:
-  runtime_kind: validation_fixture
-  target_ref: "${fixturePath}"
-project_session_binding:
-  runtime_kind: openclaw_session
-  target_ref: agent:main:demo-acr
-  metadata:
-    note: "Resolved from current OpenClaw sessions store for Step 2.1 runtime rehearsal."
-`,
-  );
-
-  const escalationStore = createMainSessionEscalationStore({ dataDir: workspace.dataDir });
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const fixture = await loadDemoAcrFixture("dispatch-ok");
-  const sessionKey = "agent:main:demo-acr-completion-fixture";
-  const result = await beforeDispatch?.({
-    ...fixture,
-    sessionKey,
-  });
-
-  assert.equal(result?.handled, true);
-  assert.match(String(result?.text), /Accepted dispatch/);
-
-  const notifications = await readBusinessNotificationRecords({
-    projectId: "demo-acr",
-    dataDir: workspace.dataDir,
-  });
-  assert.equal(notifications.length, 1);
-  assert.equal(notifications[0]?.signal_kind, "high_signal_completion");
-
-  const openEscalations = await escalationStore.listOpen({
-    canonicalSessionKey: sessionKey,
-    projectId: "demo-acr",
-  });
-  assert.equal(openEscalations.length, 0);
-});
-
 test("project-owned service binding can bridge dispatch into external ingress without local handler", async () => {
   const workspace = await makeCopiedDemoAcrWorkspace();
   const bridgeTarget = path.join(workspace.root, "orchestrator-ingress.jsonl");
@@ -1472,7 +1072,7 @@ service_binding:
 `,
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceBridgeAdapters: {
@@ -1504,17 +1104,6 @@ service_binding:
       },
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const sessionKey = "agent:main:demo-acr-bridge";
   const fixture = await loadDemoAcrFixture("dispatch-ok");

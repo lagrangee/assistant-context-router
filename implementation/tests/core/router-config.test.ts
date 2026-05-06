@@ -7,9 +7,9 @@ import { fileURLToPath } from "node:url";
 import { loadProjectRouterConfig, loadRouterConfig, mergeRouterConfigs } from "../../core/src/routing/config.ts";
 import { decideRoute } from "../../core/src/routing/decision.ts";
 import { normalizeIngressEvent } from "../../core/src/routing/ingress.ts";
-import { createAssistantContextRouterPlugin } from "../../adapters/openclaw/plugin/src/index.ts";
 import { demoAcrRoot, loadDemoAcrFixture, makeDemoAcrWorkspace, makeTempProjectWorkspace } from "../test-helpers.ts";
 import { getProjectById } from "../../core/src/projects/registry.ts";
+import { registerOpenClawTestPlugin } from "../openclaw/openclaw-test-helpers.ts";
 
 test("loadRouterConfig parses action routing manifest", async () => {
   const workspace = await makeTempProjectWorkspace();
@@ -145,7 +145,7 @@ test("plugin can load router config and route configured action to project lane"
 `,
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     routerConfigPath: configPath,
@@ -159,18 +159,7 @@ test("plugin can load router config and route configured action to project lane"
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     channel: "feishu",
     payload: {
       project_id: "proj-openclaw-feishu-orchestrator",
@@ -195,24 +184,13 @@ test("configured service route safe-fails when no service handler is registered"
 `,
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     routerConfigPath: configPath,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     channel: "feishu",
     payload: {
       project_id: "proj-openclaw-feishu-orchestrator",
@@ -304,7 +282,7 @@ task_bug_policy:
 
 test("plugin resolves demo-acr project-level router manifest through registry", async () => {
   const workspace = await makeDemoAcrWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     serviceHandlers: {
@@ -317,19 +295,8 @@ test("plugin resolves demo-acr project-level router manifest through registry", 
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
   const fixture = await loadDemoAcrFixture("append-note");
-  const result = await beforeDispatch?.(fixture);
+  const result = await beforeDispatch(fixture);
   assert.equal(result?.handled, true);
   assert.equal(result?.text, undefined);
 

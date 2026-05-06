@@ -7,10 +7,40 @@ import {
   createOpenClawSessionBusinessNotificationDeliveryAdapter,
   createOpenClawWechatBusinessNotificationDeliveryAdapter,
 } from "../../adapters/openclaw/runtime/src/business-notification-delivery.ts";
+import type { BusinessNotificationDeliveryRecord } from "../../core/src/types.ts";
 
 function assertLarkIdempotencyKey(value: unknown) {
   assert.equal(typeof value, "string");
   assert.match(value, /^acr-[a-f0-9]{32}$/);
+}
+
+function makeDeliveryRecord(
+  overrides: Partial<BusinessNotificationDeliveryRecord> = {},
+): BusinessNotificationDeliveryRecord {
+  return {
+    delivery_id: "business_notification_delivery:test",
+    created_at: "2026-04-21T12:00:00.000Z",
+    updated_at: "2026-04-21T12:00:00.000Z",
+    notification_id: "notification:test",
+    project_id: "demo-acr",
+    signal_kind: "high_signal_completion",
+    trace_id: "trace-complete",
+    action_name: "complete",
+    workflow: "dispatch",
+    reason: "completion boundary requested DM",
+    summary: "Agent reached completion boundary",
+    artifact_ref: null,
+    channel_type: "wechat",
+    target_kind: "dm",
+    target_ref: "local:human_dm",
+    delivery_mode: "direct",
+    rendered_message: "ACR business notification",
+    status: "pending",
+    runtime_target_id: null,
+    error_reason: null,
+    trace_patch: null,
+    ...overrides,
+  };
 }
 
 test("business notification delivery adapter sends chat messages via lark-cli im", async () => {
@@ -28,29 +58,18 @@ test("business notification delivery adapter sends chat messages via lark-cli im
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:1",
-    created_at: "2026-04-21T12:00:00.000Z",
-    updated_at: "2026-04-21T12:00:00.000Z",
     notification_id: "notification:test:1",
-    project_id: "demo-acr",
-    signal_kind: "high_signal_completion",
     trace_id: "trace-demo-1",
     action_name: "dispatch",
-    workflow: "dispatch",
     reason: "service_result_ok",
     summary: "Dispatch accepted for demo-acr",
-    artifact_ref: null,
     channel_type: "feishu",
     target_kind: "chat",
     target_ref: "oc_1234567890",
     delivery_mode: "channel_message",
-    rendered_message: "ACR business notification",
-    status: "pending",
-    runtime_target_id: null,
-    error_reason: null,
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "delivered");
   assert.equal(result.runtime_target_id, "om_sent_123");
@@ -81,29 +100,20 @@ test("business notification delivery adapter replies in thread for message targe
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:2",
-    created_at: "2026-04-21T12:01:00.000Z",
-    updated_at: "2026-04-21T12:01:00.000Z",
     notification_id: "notification:test:2",
-    project_id: "demo-acr",
     signal_kind: "review_request",
     trace_id: "trace-demo-2",
     action_name: "review",
     workflow: "review",
     reason: "review_required",
     summary: "Review requires human reviewer",
-    artifact_ref: null,
     channel_type: "feishu",
     target_kind: "message",
     target_ref: "om_1234567890",
     delivery_mode: "thread_reply",
-    rendered_message: "ACR business notification",
-    status: "pending",
-    runtime_target_id: null,
-    error_reason: null,
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "delivered");
   assert.deepEqual(calls[0]?.slice(0, -1), [
@@ -134,29 +144,21 @@ test("business notification delivery adapter keeps record_only fallback for unsu
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:3",
-    created_at: "2026-04-21T12:02:00.000Z",
-    updated_at: "2026-04-21T12:02:00.000Z",
     notification_id: "notification:test:3",
-    project_id: "demo-acr",
     signal_kind: "blocked",
     trace_id: "trace-demo-3",
     action_name: "dispatch",
-    workflow: "dispatch",
     reason: "blocked_human_decision_required_project_owner_approval",
     summary: "Dispatch is blocked until project owner approval is granted",
-    artifact_ref: null,
     channel_type: null,
     target_kind: null,
     target_ref: null,
     delivery_mode: null,
-    rendered_message: "ACR business notification",
     status: "record_only",
-    runtime_target_id: null,
     error_reason: "record_only:no_feishu_reply_target",
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "record_only");
   assert.equal(called, false);
@@ -206,29 +208,11 @@ test("business notification delivery adapter sends configured wechat DM via chan
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:4",
-    created_at: "2026-04-21T12:03:00.000Z",
-    updated_at: "2026-04-21T12:03:00.000Z",
     notification_id: "notification:test:4",
-    project_id: "demo-acr",
-    signal_kind: "high_signal_completion",
     trace_id: "trace-complete-1",
-    action_name: "complete",
-    workflow: "dispatch",
-    reason: "completion boundary requested DM",
-    summary: "Agent reached completion boundary",
-    artifact_ref: null,
-    channel_type: "wechat",
-    target_kind: "dm",
-    target_ref: "local:human_dm",
-    delivery_mode: "direct",
-    rendered_message: "ACR business notification",
-    status: "pending",
-    runtime_target_id: null,
-    error_reason: null,
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "delivered");
   assert.equal(result.runtime_target_id, "wx-msg-123");
@@ -258,29 +242,11 @@ test("business notification delivery adapter fails closed for unresolved symboli
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:5",
-    created_at: "2026-04-21T12:04:00.000Z",
-    updated_at: "2026-04-21T12:04:00.000Z",
     notification_id: "notification:test:5",
-    project_id: "demo-acr",
-    signal_kind: "high_signal_completion",
     trace_id: "trace-complete-2",
-    action_name: "complete",
-    workflow: "dispatch",
-    reason: "completion boundary requested DM",
-    summary: "Agent reached completion boundary",
-    artifact_ref: null,
-    channel_type: "wechat",
-    target_kind: "dm",
-    target_ref: "local:human_dm",
-    delivery_mode: "direct",
-    rendered_message: "ACR business notification",
-    status: "pending",
-    runtime_target_id: null,
-    error_reason: null,
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "failed");
   assert.match(
@@ -323,29 +289,11 @@ test("business notification delivery adapter fails closed when wechat provider r
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:provider-reject",
-    created_at: "2026-04-21T12:05:00.000Z",
-    updated_at: "2026-04-21T12:05:00.000Z",
     notification_id: "notification:test:provider-reject",
-    project_id: "demo-acr",
-    signal_kind: "high_signal_completion",
     trace_id: "trace-complete-provider-reject",
-    action_name: "complete",
-    workflow: "dispatch",
-    reason: "completion boundary requested DM",
-    summary: "Agent reached completion boundary",
-    artifact_ref: null,
-    channel_type: "wechat",
-    target_kind: "dm",
-    target_ref: "local:human_dm",
-    delivery_mode: "direct",
-    rendered_message: "ACR business notification",
-    status: "pending",
-    runtime_target_id: null,
-    error_reason: null,
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "failed");
   assert.equal(result.runtime_target_id, "user@example.invalid");
@@ -417,29 +365,11 @@ test("business notification delivery adapter falls back from rejected wechat dir
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:wechat-fallback",
-    created_at: "2026-04-21T12:05:30.000Z",
-    updated_at: "2026-04-21T12:05:30.000Z",
     notification_id: "notification:test:wechat-fallback",
-    project_id: "demo-acr",
-    signal_kind: "high_signal_completion",
     trace_id: "trace-complete-wechat-fallback",
-    action_name: "complete",
-    workflow: "dispatch",
-    reason: "completion boundary requested DM",
-    summary: "Agent reached completion boundary",
-    artifact_ref: null,
-    channel_type: "wechat",
-    target_kind: "dm",
-    target_ref: "local:human_dm",
-    delivery_mode: "direct",
-    rendered_message: "ACR business notification",
-    status: "pending",
-    runtime_target_id: null,
-    error_reason: null,
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "delivered");
   assert.equal(result.runtime_target_id, "agent:main:main");
@@ -492,29 +422,11 @@ test("business notification delivery adapter can route configured wechat DM via 
     },
   });
 
-  const result = await adapter({
+  const result = await adapter(makeDeliveryRecord({
     delivery_id: "business_notification_delivery:test:6",
-    created_at: "2026-04-21T12:03:00.000Z",
-    updated_at: "2026-04-21T12:03:00.000Z",
     notification_id: "notification:test:6",
-    project_id: "demo-acr",
-    signal_kind: "high_signal_completion",
     trace_id: "trace-complete-1",
-    action_name: "complete",
-    workflow: "dispatch",
-    reason: "completion boundary requested DM",
-    summary: "Agent reached completion boundary",
-    artifact_ref: null,
-    channel_type: "wechat",
-    target_kind: "dm",
-    target_ref: "local:human_dm",
-    delivery_mode: "direct",
-    rendered_message: "ACR business notification",
-    status: "pending",
-    runtime_target_id: null,
-    error_reason: null,
-    trace_patch: null,
-  });
+  }));
 
   assert.equal(result.status, "delivered");
   assert.equal(result.runtime_target_id, "main:human");

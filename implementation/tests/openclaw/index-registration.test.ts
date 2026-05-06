@@ -3,28 +3,16 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 
-import { createAssistantContextRouterPlugin } from "../../adapters/openclaw/plugin/src/index.ts";
 import { buildGovernanceDeliverySeed } from "../../core/src/routing/governance-delivery.ts";
 import { createGovernanceDeliveryOutbox } from "../../core/src/state/governance-delivery-outbox.ts";
 import { makeTempProjectWorkspace } from "../test-helpers.ts";
+import { registerOpenClawTestPlugin } from "./openclaw-test-helpers.ts";
 
 test("plugin registers commands and hooks", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { commands, hooks } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
-  });
-
-  const commands: string[] = [];
-  const hooks: string[] = [];
-
-  await plugin.register({
-    registerCommand(command) {
-      commands.push(command.name);
-    },
-    on(eventName) {
-      hooks.push(eventName);
-    },
   });
 
   assert.deepEqual(commands.sort(), ["project"]);
@@ -50,86 +38,54 @@ test("default plugin export does not require config.registryPath", async () => {
   assert.equal(registered, 1);
 });
 
-test("before_dispatch handles slash-like /project --all input from nested message payload", async () => {
+test("before_dispatch handles slash-like /project --all inputs", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
+  const cases = [
+    {
+      name: "nested message text",
+      event: {
+        message: {
+          text: "/project --all",
+        },
+      },
+      expected: /Projects:/,
+      unexpected: null,
     },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
-    message: {
-      text: "/project --all",
+    {
+      name: "nested query text",
+      event: {
+        message: {
+          text: "/project --all feishu orchestrator",
+        },
+      },
+      expected: /proj-openclaw-feishu-orchestrator/,
+      unexpected: /proj-sample/,
     },
-  });
+  ];
 
-  assert.equal(result?.handled, true);
-  assert.match(String(result?.text), /Projects:/);
-  assert.match(String(result?.text), /proj-sample/);
-});
-
-test("before_dispatch handles slash-like /project --all query input", async () => {
-  const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
-    message: {
-      text: "/project --all feishu orchestrator",
-    },
-  });
-
-  assert.equal(result?.handled, true);
-  assert.match(String(result?.text), /proj-openclaw-feishu-orchestrator/);
-  assert.doesNotMatch(String(result?.text), /proj-sample/);
+  for (const testCase of cases) {
+    const result = await beforeDispatch(testCase.event);
+    assert.equal(result?.handled, true, testCase.name);
+    assert.match(String(result?.text), testCase.expected, testCase.name);
+    if (testCase.unexpected) {
+      assert.doesNotMatch(String(result?.text), testCase.unexpected, testCase.name);
+    }
+  }
 });
 
 test("before_dispatch strips TUI metadata prefix and handles /project with session state", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "[Sat 2026-04-04 18:13 GMT+8] /project proj-sample",
     sessionKey: "agent:main:orchestrator",
   });
@@ -141,24 +97,12 @@ test("before_dispatch strips TUI metadata prefix and handles /project with sessi
 
 test("before_dispatch handles /project --help", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project --help",
     sessionKey: "agent:main:project-help",
   });
@@ -171,85 +115,36 @@ test("before_dispatch handles /project --help", async () => {
   assert.match(String(result?.text), /\/project \[\<project_ref\>\] --governance/);
 });
 
-test("before_dispatch does not treat legacy /projects as a supported command", async () => {
+test("before_dispatch ignores retired project command aliases", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
+  for (const content of ["/projects", "/project-lane"]) {
+    const result = await beforeDispatch({
+      content,
+      sessionKey: `agent:main:retired-alias:${content}`,
+    });
 
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
-    content: "/projects",
-    sessionKey: "agent:main:legacy-projects",
-  });
-
-  assert.deepEqual(result, {});
-});
-
-test("before_dispatch does not treat legacy /project-lane as a supported command", async () => {
-  const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
-    registryPath: workspace.registryPath,
-    dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
-    content: "/project-lane",
-    sessionKey: "agent:main:legacy-project-lane",
-  });
-
-  assert.deepEqual(result, {});
+    assert.deepEqual(result, {}, content);
+  }
 });
 
 test("before_dispatch arms save mode for /project --save and allows agent flow to continue", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project proj-sample",
     sessionKey: "agent:main:save-mode",
   });
 
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project --save",
     sessionKey: "agent:main:save-mode",
   });
@@ -259,24 +154,12 @@ test("before_dispatch arms save mode for /project --save and allows agent flow t
 
 test("before_dispatch safe-fails unresolved automation ingress", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     channel: "feishu",
     payload: {
       action_name: "dispatch",
@@ -291,24 +174,12 @@ test("before_dispatch safe-fails unresolved automation ingress", async () => {
 
 test("before_dispatch stores route trace with generated trace_id for structured automation ingress", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     channel: "feishu",
     payload: {
       project_id: "proj-openclaw-feishu-orchestrator",
@@ -334,29 +205,17 @@ test("before_dispatch stores route trace with generated trace_id for structured 
 
 test("before_dispatch handles /project --lane for the current session project", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project proj-sample",
     sessionKey: "agent:main:lane-summary",
   });
 
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project --lane",
     sessionKey: "agent:main:lane-summary",
   });
@@ -402,29 +261,17 @@ test("before_dispatch handles /project --governance for the current session proj
     }),
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project proj-sample",
     sessionKey: "agent:main:governance-summary",
   });
 
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project --governance",
     sessionKey: "agent:main:governance-summary",
   });
@@ -444,7 +291,7 @@ test("before_dispatch handles slash-like /project --surface-sync for the current
       }
     | null = null;
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     workSurfaceSync: async (input) => {
@@ -478,24 +325,12 @@ test("before_dispatch handles slash-like /project --surface-sync for the current
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project proj-sample",
     sessionKey: "agent:main:project-surface-sync",
   });
 
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project --surface-sync",
     sessionKey: "agent:main:project-surface-sync",
   });
@@ -520,7 +355,7 @@ test("before_dispatch handles slash-like /project sample project --surface-sync 
       }
     | null = null;
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     workSurfaceSync: async (input) => {
@@ -561,19 +396,7 @@ test("before_dispatch handles slash-like /project sample project --surface-sync 
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project sample project --surface-sync --apply",
     sessionKey: "agent:main:project-surface-sync-query",
   });
@@ -599,7 +422,7 @@ test("before_dispatch handles slash-like /project --catalog-sync for the current
       }
     | null = null;
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     projectCatalogSync: async (input) => {
@@ -625,24 +448,12 @@ test("before_dispatch handles slash-like /project --catalog-sync for the current
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project proj-sample",
     sessionKey: "agent:main:project-catalog-sync",
   });
 
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project --catalog-sync",
     sessionKey: "agent:main:project-catalog-sync",
   });
@@ -661,7 +472,7 @@ test("before_dispatch handles slash-like /project --catalog-sync for the current
 test("before_dispatch returns friendly surface-sync error text instead of generic failure", async () => {
   const workspace = await makeTempProjectWorkspace();
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     workSurfaceSync: async () => {
@@ -669,24 +480,12 @@ test("before_dispatch returns friendly surface-sync error text instead of generi
     },
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project proj-sample",
     sessionKey: "agent:main:surface-sync-friendly-error",
   });
 
-  const result = await beforeDispatch?.({
+  const result = await beforeDispatch({
     content: "/project --surface-sync",
     sessionKey: "agent:main:surface-sync-friendly-error",
   });
@@ -698,7 +497,7 @@ test("before_dispatch returns friendly surface-sync error text instead of generi
 test("project command handler returns friendly surface-sync error text", async () => {
   const workspace = await makeTempProjectWorkspace();
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { commandHandlers } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     workSurfaceSync: async () => {
@@ -706,16 +505,7 @@ test("project command handler returns friendly surface-sync error text", async (
     },
   });
 
-  const commands = new Map<string, (ctx: Record<string, unknown>) => Promise<{ text: string }>>();
-
-  await plugin.register({
-    registerCommand(command) {
-      commands.set(command.name, command.handler as (ctx: Record<string, unknown>) => Promise<{ text: string }>);
-    },
-    on() {},
-  });
-
-  const projectHandler = commands.get("project");
+  const projectHandler = commandHandlers.get("project");
   assert.ok(projectHandler);
 
   await projectHandler?.({
@@ -733,36 +523,22 @@ test("project command handler returns friendly surface-sync error text", async (
 
 test("before_prompt_build hook can resolve session key from runtime context", async () => {
   const workspace = await makeTempProjectWorkspace();
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch, beforePromptBuild } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
 
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  const beforePromptBuild = handlers.get("before_prompt_build");
-  assert.ok(beforeDispatch);
-  assert.ok(beforePromptBuild);
-
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project proj-sample",
     sessionKey: "agent:main:ctx-prompt-build",
   });
 
-  await beforeDispatch?.({
+  await beforeDispatch({
     content: "/project --save",
     sessionKey: "agent:main:ctx-prompt-build",
   });
 
-  const result = await beforePromptBuild?.(
+  const result = await beforePromptBuild(
     {
       prompt: "/project --save",
       messages: [],

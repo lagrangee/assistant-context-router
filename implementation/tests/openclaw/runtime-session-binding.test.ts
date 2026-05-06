@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 
-import { createAssistantContextRouterPlugin } from "../../adapters/openclaw/plugin/src/index.ts";
 import {
   DEFAULT_RUNTIME_BINDINGS_DIRNAME,
   DEFAULT_RUNTIME_BINDINGS_FILENAME,
@@ -15,6 +14,7 @@ import {
   makeTempProjectWorkspace,
   writeRuntimeBindingsConfig,
 } from "../test-helpers.ts";
+import { registerOpenClawTestPlugin } from "./openclaw-test-helpers.ts";
 
 test("main session binding canonicalizes aliases for /project focus switching", async () => {
   const workspace = await makeTempProjectWorkspace();
@@ -29,24 +29,11 @@ test("main session binding canonicalizes aliases for /project focus switching", 
       },
     ],
   });
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch, beforePromptBuild } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     runtimeBindingsPath,
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  const beforePromptBuild = handlers.get("before_prompt_build");
-  assert.ok(beforeDispatch);
-  assert.ok(beforePromptBuild);
 
   const switchResult = await beforeDispatch?.({
     content: "/project proj-sample",
@@ -97,24 +84,10 @@ test("main session binding defaults to plugin-owned runtime-bindings.yaml when r
     "utf8",
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
-
-  const handlers = new Map<
-    string,
-    (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>
-  >();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const switchResult = await beforeDispatch?.({
     content: "/project proj-sample",
@@ -150,7 +123,7 @@ project_session_binding:
 `,
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     projectSessionDeliveryAdapters: {
@@ -176,17 +149,6 @@ project_session_binding:
       },
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const result = await beforeDispatch?.({
     channel: "feishu",
@@ -221,21 +183,10 @@ test("project session binding degrades to shadow lane when binding is missing", 
 `,
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const result = await beforeDispatch?.({
     channel: "feishu",
@@ -273,13 +224,10 @@ project_session_binding:
   const heartbeatRuns: Array<{ reason?: string; sessionKey?: string; target?: string }> = [];
   const heartbeats: Array<{ reason?: string; sessionKey?: string }> = [];
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  plugin.register({
+  }, {
     runtime: {
       system: {
         enqueueSystemEvent(text, options) {
@@ -309,14 +257,7 @@ project_session_binding:
         },
       },
     },
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
   });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const result = await beforeDispatch?.({
     channel: "feishu",
@@ -366,13 +307,10 @@ project_session_binding:
   const heartbeatRuns: Array<{ reason?: string; sessionKey?: string; target?: string }> = [];
   const heartbeats: Array<{ reason?: string; sessionKey?: string }> = [];
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
-  });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  plugin.register({
+  }, {
     runtime: {
       system: {
         enqueueSystemEvent(text, options) {
@@ -402,14 +340,7 @@ project_session_binding:
         },
       },
     },
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
   });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  assert.ok(beforeDispatch);
 
   const result = await beforeDispatch?.({
     channel: "feishu",
@@ -470,7 +401,7 @@ project_session_binding:
 `,
   );
 
-  const plugin = createAssistantContextRouterPlugin({
+  const { beforeDispatch, beforePromptBuild } = await registerOpenClawTestPlugin({
     registryPath: workspace.registryPath,
     dataDir: workspace.dataDir,
     runtimeBindingsPath,
@@ -497,19 +428,6 @@ project_session_binding:
       },
     },
   });
-
-  const handlers = new Map<string, (event: Record<string, unknown>, ctx?: unknown) => Promise<Record<string, unknown>>>();
-  await plugin.register({
-    registerCommand() {},
-    on(eventName, handler) {
-      handlers.set(eventName, handler);
-    },
-  });
-
-  const beforeDispatch = handlers.get("before_dispatch");
-  const beforePromptBuild = handlers.get("before_prompt_build");
-  assert.ok(beforeDispatch);
-  assert.ok(beforePromptBuild);
 
   const projectResult = await beforeDispatch?.({
     content: "/project demo-acr",
