@@ -480,7 +480,7 @@ Gate 5 validation prep：
 - ACR 当前已经能给未来 Feishu/work-surface adapter 产出单一消费面
 - 这仍是 derived snapshot，不是新的 authority host
 - 当前机器已验证可通过 `lark-cli` 的 bot identity 读取既有 Feishu Base：
-  - `private config host`
+  - private config host
   - 表包括 `Projects / Tasks / Bugs / Service Runs Monitor / Dict Definition / Events`
 - 下一条主线默认沿用现有 Base，而不是新建 Base
 - 但 `Cut 8A` 不应把当前 project-level latest snapshot 直接写进 `Tasks / Bugs`
@@ -503,7 +503,7 @@ Gate 5 validation prep：
 
 本轮已完成：
 - live schema:
-  - Human review 通过后，已在 Base `private config host` 创建 `Work Surface Snapshots`
+  - Human review 通过后，已在 Base private config host 创建 `Work Surface Snapshots`
   - 已在 `Dict Definition` 注册 `Work Surface状态`
   - projection table 当前实际字段名已定：
     - `Project ID`

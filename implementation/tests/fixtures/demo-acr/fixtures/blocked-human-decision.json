@@ -1,0 +1,24 @@
+{
+  "channel": "feishu",
+  "payload": {
+    "source_type": "automation",
+    "project_id": "demo-acr",
+    "action_name": "dispatch",
+    "workflow": "dispatch",
+    "parameters": {
+      "task_id": "TASK-002",
+      "title": "Dispatch is blocked until project owner approval is granted",
+      "requested_by": "qa-bot",
+      "validation_case": "blocked_human_decision",
+      "expected_reason": "blocked_human_decision_required_project_owner_approval"
+    },
+    "reply_target": {
+      "target_kind": "channel",
+      "target_id": "feishu:thread:demo-blocked-human-1",
+      "visibility": "system_facing",
+      "reply_mode": "direct"
+    },
+    "trace_id": "demo-acr-blocked-human-decision-001",
+    "message_id": "msg-demo-blocked-human-decision-001"
+  }
+}

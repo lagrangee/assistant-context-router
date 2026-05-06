@@ -1,0 +1,15 @@
+{
+  "channel": "feishu",
+  "payload": {
+    "source_type": "automation",
+    "project_id": "demo-acr",
+    "action_name": "append_project_note",
+    "workflow": "general",
+    "parameters": {
+      "note": "Checkpoint: manifest reviewed and kept minimal.",
+      "source": "demo-fixture"
+    },
+    "trace_id": "demo-acr-append-note-001",
+    "message_id": "msg-demo-append-note-001"
+  }
+}

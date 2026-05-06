@@ -20,9 +20,11 @@ async function main() {
   const runtimeTarget = path.join(tempRoot, "runtime-project-session.jsonl");
   const registryPath = path.join(tempRoot, "index.yaml");
   const runtimeBindingsPath = path.join(tempRoot, "runtime-bindings.yaml");
-  const sourceProjectRoot = path.resolve(
-    "<demo-acr-root>",
-  );
+  const demoProjectRoot = process.env.ACR_DEMO_PROJECT_ROOT?.trim();
+  if (!demoProjectRoot) {
+    throw new Error("missing-env:ACR_DEMO_PROJECT_ROOT");
+  }
+  const sourceProjectRoot = path.resolve(demoProjectRoot);
 
   try {
     await mkdir(path.dirname(projectRoot), { recursive: true });

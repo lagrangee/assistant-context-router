@@ -1,6 +1,7 @@
 import { cp, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export async function makeTempProjectWorkspace(): Promise<{
   root: string;
@@ -170,9 +171,7 @@ Step 2 preparation
 }
 
 export function demoAcrRoot(): string {
-  return path.resolve(
-    "<demo-acr-root>",
-  );
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "demo-acr");
 }
 
 export async function makeDemoAcrWorkspace(): Promise<{

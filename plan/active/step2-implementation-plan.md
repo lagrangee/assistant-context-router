@@ -225,7 +225,7 @@ Step 2 的目标不是补齐所有层，而是打通这一条最小闭环：
 - 在沿用既有 Feishu Base 设计资产的前提下，落第一刀真正的 work-surface adapter 消费实现
 
 约束：
-- 通过 FEISHU_BASE_TOKEN 或 config host 绑定既有 Base：`private config host`
+- 通过 FEISHU_BASE_TOKEN 或 config host 绑定既有 Base：private config host
 - 第一刀不把当前 project-level latest snapshot 直接写入 `Tasks / Bugs`
 - `Tasks / Bugs` 的 meta 设计、字段契约、状态流转逻辑作为继承参考
 - `Service Runs Monitor` 不作为当前 projection 的默认目标

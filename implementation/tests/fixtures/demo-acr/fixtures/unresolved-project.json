@@ -1,0 +1,22 @@
+{
+  "channel": "feishu",
+  "payload": {
+    "source_type": "automation",
+    "project_id": "demo-acr-missing",
+    "action_name": "dispatch",
+    "workflow": "dispatch",
+    "parameters": {
+      "task_id": "TASK-404",
+      "title": "Should safe-fail because project is unresolved.",
+      "requested_by": "qa-bot"
+    },
+    "reply_target": {
+      "target_kind": "channel",
+      "target_id": "feishu:thread:demo-unresolved-1",
+      "visibility": "system_facing",
+      "reply_mode": "direct"
+    },
+    "trace_id": "demo-acr-unresolved-project-001",
+    "message_id": "msg-demo-unresolved-project-001"
+  }
+}

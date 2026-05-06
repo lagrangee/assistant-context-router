@@ -1,0 +1,22 @@
+{
+  "channel": "feishu",
+  "payload": {
+    "source_type": "automation",
+    "project_id": "demo-acr",
+    "action_name": "review",
+    "workflow": "review",
+    "parameters": {
+      "artifact_id": "ART-001",
+      "summary": "Router manifest changed and needs human review.",
+      "review_kind": "manifest"
+    },
+    "reply_target": {
+      "target_kind": "channel",
+      "target_id": "feishu:thread:demo-review-1",
+      "visibility": "system_facing",
+      "reply_mode": "direct"
+    },
+    "trace_id": "demo-acr-review-request-001",
+    "message_id": "msg-demo-review-001"
+  }
+}

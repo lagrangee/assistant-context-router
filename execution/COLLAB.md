@@ -189,7 +189,7 @@
       - 不自动写 `Done / Fixed / 实际完成时间 / 修复结果`
   - 当前下一步已从“先 formalize Task/Bug policy/schema”推进到“拿真实 `dispatch group -> Task/Bug row` 跑第一轮 live writeback 验证，再进入 self-hosted real usage”
   - 已确认的 guardrails：
-    - 通过 FEISHU_BASE_TOKEN 或 config host 绑定既有 Base：`private config host`
+    - 通过 FEISHU_BASE_TOKEN 或 config host 绑定既有 Base：private config host
     - `Tasks / Bugs` 的 meta 设计与字段/状态机逻辑应继承
     - 第一刀不直接把 project-level snapshot 写进 `Tasks / Bugs`
     - `Service Runs Monitor` 不作为当前 projection 的默认目标

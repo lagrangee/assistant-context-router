@@ -20,7 +20,7 @@
 - 本文档更聚焦字段 ownership、acceptance policy、以及 writeback/runtime 行为
 
 ## Current implemented schema slice
-当前已在 live Base `private config host` 完成第一批 schema 变更：
+当前已在 live Base private config host 完成第一批 schema 变更：
 
 ### `Dict Definition`
 已新增：
@@ -265,7 +265,7 @@ task_bug_policy:
 - service path observer 能收到 project-level policy default
 
 ## Current enum drift audit
-当前已对 live Base `private config host` 的 `Dict Definition` 与 `Tasks / Bugs` 动态下拉源做了一轮完整对账，并已完成最小修复。
+当前已对 live Base private config host 的 `Dict Definition` 与 `Tasks / Bugs` 动态下拉源做了一轮完整对账，并已完成最小修复。
 
 ### 已对齐
 - `Task状态`

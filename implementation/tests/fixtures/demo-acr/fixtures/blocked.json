@@ -1,0 +1,21 @@
+{
+  "channel": "feishu",
+  "payload": {
+    "source_type": "automation",
+    "project_id": "demo-acr",
+    "action_name": "review",
+    "workflow": "review",
+    "parameters": {
+      "artifact_id": "ART-002",
+      "review_kind": "manifest"
+    },
+    "reply_target": {
+      "target_kind": "channel",
+      "target_id": "feishu:thread:demo-blocked-1",
+      "visibility": "system_facing",
+      "reply_mode": "direct"
+    },
+    "trace_id": "demo-acr-blocked-001",
+    "message_id": "msg-demo-blocked-001"
+  }
+}

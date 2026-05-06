@@ -1,0 +1,26 @@
+kind: delivery
+project_id: demo-acr
+title: "demo-acr"
+owner: project-owner
+status: active
+objective: "Validate ACR project-side contract, routing manifest, and acceptance flow with a minimal demo project."
+constraints:
+  scope: "Keep the demo bounded to contract, fixtures, and acceptance validation."
+  runtime: "Do not build a complex runtime or orchestrator here."
+  boundary: "Do not add project-specific adapter code to ACR core."
+principles:
+  - "general-only ACR core"
+  - "project-side integration via contract and config"
+  - "main session is the only human-facing default entry"
+  - "automation defaults to project session or service, not main session"
+acceptance_criteria:
+  - "Project-side hall docs and router manifest are sufficient to express the demo contract."
+  - "Structured fixtures cover service, project_session, escalation, and safe-fail paths."
+  - "The demo can serve as a future regression fixture set for ACR."
+primary_docs:
+  - "README.md"
+  - "STATUS.md"
+  - "RESUME.md"
+  - "docs/contract.md"
+  - "docs/acceptance-cases.md"
+next_action: "Wire the fixtures into ACR validation or replay tests."

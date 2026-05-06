@@ -111,7 +111,7 @@ catalog sync 当前建议采用下面的 precedence。
 
 ## Live Base alignment
 当前 live Base：
-- base token: `private config host`
+- base token: repo does not store this value
 - table: `Projects`
 - table id: `<projects-table-id>`
 

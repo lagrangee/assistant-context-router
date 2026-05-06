@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "by_trace_id": {
+    "demo-acr-review-request-001": {
+      "status": "needs_escalation",
+      "result_kind": "needs_escalation",
+      "summary": "Review requires human reviewer",
+      "reply_payload": null,
+      "needs_escalation": true,
+      "escalation_reason": "review_required",
+      "run_id": "run-demo-review-001",
+      "queue_ref": null,
+      "trace_patch": {
+        "validation_case": "review_request"
+      }
+    },
+    "demo-acr-blocked-human-decision-001": {
+      "status": "needs_escalation",
+      "result_kind": "needs_escalation",
+      "summary": "Dispatch is blocked until project owner approval is granted",
+      "reply_payload": null,
+      "needs_escalation": true,
+      "escalation_reason": "blocked_human_decision_required_project_owner_approval",
+      "run_id": "run-demo-dispatch-blocked-001",
+      "queue_ref": "queue-demo-dispatch-blocked-001",
+      "trace_patch": {
+        "validation_case": "blocked_human_decision"
+      }
+    },
+    "demo-acr-blocked-human-decision-002": {
+      "status": "needs_escalation",
+      "result_kind": "needs_escalation",
+      "summary": "Dispatch is blocked until project owner approval is granted",
+      "reply_payload": null,
+      "needs_escalation": true,
+      "escalation_reason": "blocked_human_decision_required_project_owner_approval",
+      "run_id": "run-demo-dispatch-blocked-002",
+      "queue_ref": "queue-demo-dispatch-blocked-002",
+      "trace_patch": {
+        "validation_case": "blocked_human_decision_repeat"
+      }
+    },
+    "demo-acr-dispatch-ok-001": {
+      "status": "ok",
+      "result_kind": "accepted",
+      "summary": "Dispatch accepted for demo-acr",
+      "reply_payload": "Accepted dispatch for demo-acr",
+      "needs_escalation": false,
+      "escalation_reason": null,
+      "run_id": "run-demo-dispatch-001",
+      "queue_ref": "queue-demo-dispatch-001",
+      "trace_patch": {
+        "validation_case": "high_signal_completion"
+      }
+    }
+  }
+}

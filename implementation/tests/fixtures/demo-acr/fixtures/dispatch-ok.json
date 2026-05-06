@@ -1,0 +1,22 @@
+{
+  "channel": "feishu",
+  "payload": {
+    "source_type": "automation",
+    "project_id": "demo-acr",
+    "action_name": "dispatch",
+    "workflow": "dispatch",
+    "parameters": {
+      "task_id": "TASK-001",
+      "title": "Verify dispatch contract",
+      "requested_by": "qa-bot"
+    },
+    "reply_target": {
+      "target_kind": "channel",
+      "target_id": "feishu:thread:demo-dispatch-1",
+      "visibility": "system_facing",
+      "reply_mode": "direct"
+    },
+    "trace_id": "demo-acr-dispatch-ok-001",
+    "message_id": "msg-demo-dispatch-ok-001"
+  }
+}

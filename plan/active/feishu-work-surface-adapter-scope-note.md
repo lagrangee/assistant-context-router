@@ -13,7 +13,7 @@
 若需要新增或调整表、字段、枚举、view，仍需先与 Human 讨论确认。
 
 ## Confirmed decisions
-- 通过 FEISHU_BASE_TOKEN 或 config host 绑定既有 Base：`private config host`
+- 通过 FEISHU_BASE_TOKEN 或 config host 绑定既有 Base：private config host
 - 第一刀不把当前 project-level latest snapshot 直接写入 `Tasks / Bugs`
 - `Tasks / Bugs` 的 meta 设计、字段契约、状态流转逻辑只作为继承参考
 - `Service Runs Monitor` 不作为当前 projection 的默认目标

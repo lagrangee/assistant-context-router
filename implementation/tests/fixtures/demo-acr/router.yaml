@@ -1,0 +1,27 @@
+actions:
+  dispatch:
+    target_kind: service
+    workflow: dispatch
+    requires_resolved_project: true
+
+  review:
+    target_kind: service
+    workflow: review
+    requires_resolved_project: true
+
+  append_project_note:
+    target_kind: project_session
+    workflow: general
+    requires_resolved_project: true
+
+service_binding:
+  runtime_kind: validation_fixture
+  target_ref: demo-acr/validation/service-results.json
+  metadata:
+    note: "Validation-only harness for escalation rehearsal."
+
+project_session_binding:
+  runtime_kind: openclaw_session
+  target_ref: agent:main:demo-acr
+  metadata:
+    note: "Resolved from current OpenClaw sessions store for runtime rehearsal."
