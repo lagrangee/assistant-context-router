@@ -1,97 +1,221 @@
 # Assistant Context Router
 
-## What this project is
-这是一个面向 OpenClaw 的 **project-aware assistant context routing** 项目。
+Assistant Context Router (ACR) is a project-aware routing and execution layer for
+OpenClaw-hosted assistants.
 
-目标不是重写 OpenClaw，也不是一开始就做一个泛化 router framework；而是在现实运行约束下，逐步交付一个：
-- project-centric
-- trigger-driven
-- context-selective
-- extension-first
+It keeps the human-facing assistant experience centered on the main session, while
+letting structured project events route into bounded project context, shadow lanes,
+work-surface writeback, semantic execution requests, and governance notifications.
 
-的最小可行方案。
+## What This Repo Owns
 
-## What this README does
-本文件承担：
-- 项目长期定义
-- 项目目标与边界
-- 顶层阅读入口
-- 主要目录角色说明
+ACR owns the general contracts and runtime glue for:
 
-本文件不承担：
-- 当前阶段总收口（见 `STATUS.md`）
-- 当前工作恢复点（见 `RESUME.md`）
-- 高频协作记录（见 `execution/COLLAB.md`）
+- project focus and bounded context injection
+- structured automation ingress
+- route decisions and traceable safe-fail behavior
+- project session shadow lanes
+- service-first execution bridges
+- harness context assembly and playbook selection
+- strict agent-output boundary capture
+- work-surface projection and writeback contracts
+- OpenClaw plugin commands and hooks
+- Feishu work-surface adapter contracts
 
-## Current phase
-当前项目已完成 Step 1 baseline，正在进行 Step 1.5 continuity 收口：hall-doc recovery 与 conversational save。
+It does not try to become a full orchestration platform, a generic workflow
+engine, or the authority host for project-specific business truth. Project-specific
+adapters and payload mappers should live in the integrating project repo and connect
+through ACR's manifests and service contracts.
 
-当前真实主线不是直接进入实现，而是先完成：
-1. 顶层架构与路线图收口
-2. Step 1.5 的 project switch / hall-doc recovery 修复
-3. `/save` 的 continuity-first conversational save 收口
-4. 随后再恢复 Step 2 的 routing 与 validation 设计
+## Current State
 
-## Project goals
-本项目当前要解决的核心问题是：
-1. session 中显式 project 切换后，如何建立合理且 bounded 的 project context
-2. 如何在 Step 1 baseline 之上叠加最小 routing policy layering
-3. 如何让多个 agent（OpenClaw agent `coordinator-agent` / Codex / 其他）在文档驱动模式下稳定协作与恢复工作
+The original Step 1 / Step 1.5 baseline is complete. The active system has moved
+well beyond simple project switching:
 
-## Non-goals (current stage)
-当前阶段明确不做：
-- 泛化 router framework
-- 过早扩大默认上下文
-- progress writeback implementation
-- 正式打包通用 skill
-- 绕过文档结构与工作态定义，直接冲进实现
+- `/project` is the single public command surface for project focus, lane inspection,
+  save mode, catalog sync, surface sync, governance, and notification audit.
+- Structured OpenClaw messages using `[ACR_AUTOMATION] ... [/ACR_AUTOMATION]` are
+  parsed into normalized envelopes before routing.
+- Project-level `router.yaml` can override action routing and bind a service bridge.
+- Feishu `Projects`, `Work Surface Snapshots`, business notification, governance
+  delivery, and `Tasks / Bugs` writeback slices are implemented.
+- `dispatch`, `review_resolution`, and `complete` can route through the Feishu
+  Task/Bug semantic bridge.
+- Main-session mediated semantic execution is supported: ACR reads a Task/Bug row,
+  builds a compact execution context, queues it into the canonical OpenClaw main
+  session, and captures a strict `[ACR_AUTOMATION]` completion boundary from the
+  agent output.
+- Completion writeback supports manual acceptance (`Reviewing / REVIEW_WAIT /
+  need_review`) and direct finalization policies, with fail-closed guards around
+  missing anchors, enum drift, placeholder summaries, and prose-only mutation claims.
 
-## Top-level reading order
-建议阅读顺序：
-1. `STATUS.md` — 项目当前状态 / 单入口摘要
-2. `README.md` — 项目长期定义与结构说明（本文）
-3. `RESUME.md` — 当前工作恢复点
-4. `docs/README.md` — 文档地图
+The current project-owned router in this repo uses:
 
-## Working shortcuts
-- 如果目标是 **resume 当前主线**：先读 `STATUS.md` -> `RESUME.md` -> `execution/COLLAB.md`
-- 如果目标是 **判断 save / writeback 应写到哪**：先读 `RESUME.md` -> `execution/COLLAB.md` -> `docs/README.md`
-- 如果目标是 **做架构判断**：先读 `plan/architecture/system-architecture-v1.md` -> `plan/architecture/roadmap-milestones-v1.md`
+```yaml
+service_binding:
+  runtime_kind: feishu_task_bug_semantic
+  target_ref: agent:main:main
 
-## Local configuration
-真实运行时配置不应写入 repo。
+task_bug_policy:
+  defaults:
+    acceptance_mode: manual_acceptance
+    completion_notify_mode: no_dm_on_completion_boundary
+    start_mode: manual_only
+```
 
-- 从 `.env.example` 复制本机 `.env`，并填入 `FEISHU_BASE_TOKEN` 等私有值。
-- Feishu adapter 也支持通过 `ACR_FEISHU_CONFIG_PATH` 指向本机 YAML config host。
-- OpenClaw runtime bindings 可通过 `ACR_RUNTIME_BINDINGS_PATH` 或 plugin data dir 默认路径加载。
-- 当前代码没有 live Feishu Base token fallback；缺少 env/config 时会 fail closed。
+For the most current operational status, read `STATUS.md` first. For the next
+work cut, read `RESUME.md`.
 
-## Key project docs
-- `STATUS.md`：当前阶段总收口 / 单入口摘要
-- `RESUME.md`：当前工作主线、上次中断点、下一步
-- `plan/architecture/system-architecture-v1.md`：顶层系统架构、稳定真相层与可替换 adapter 边界
-- `plan/architecture/roadmap-milestones-v1.md`：长期 roadmap 与 milestone 入口
-- `plan/architecture/memory-architecture-note.md`：memory 分层与 adapter 边界
-- `plan/architecture/execution-backend-boundary.md`：ACP / native thread / LangGraph / Agents SDK 的边界
-- `implementation-decision-v1.md`：MVP 决策、Step 1 现实修正、Step 2 layering decision
-- `plan/active/step2-strategy-note.md`：Step 2 策略主文档
-- `plan/active/orchestrator-integration-boundary.md`：与 orchestrator 的边界与语义分层
-- `execution/COLLAB.md`：多 agent 协作对象 / handoff / review / writeback 面
+## Public Safety And Local Config
 
-## Directory roles
-- `docs/`
-  - 文档地图、导航、archive 入口
+This repo is intended to be public-reviewable. Runtime credentials and local machine
+paths must stay outside git.
+
+- `.env.example` documents supported environment variables.
+- A real local `.env` is intentionally not tracked.
+- `FEISHU_BASE_TOKEN` is required for direct Feishu Base access unless a local config
+  host supplies the binding.
+- `ACR_FEISHU_CONFIG_PATH` may point to a local Feishu adapter YAML config host.
+- `ACR_RUNTIME_BINDINGS_PATH` may point to a local runtime bindings YAML file.
+- OpenClaw plugin data-dir defaults may also provide `feishu-adapter.yaml`,
+  `runtime-bindings.yaml`, and related local runtime hosts.
+- The code should fail closed when required env/config bindings are absent.
+
+Do not commit live Base tokens, local absolute paths, personal session keys, or
+machine-specific runtime files.
+
+## Repository Layout
+
+- `implementation/core/`
+  - runtime-neutral project, routing, state, save, trace, and context contracts
+- `implementation/harness/`
+  - execution envelopes, compact context assembly, playbook registry/selection, and
+    boundary protocol validation
+- `implementation/domains/work-items/`
+  - vendor-neutral task / bug / card / ticket playbook semantics
+- `implementation/adapters/feishu/`
+  - Feishu adapter config host and Task/Bug writeback support
+- `implementation/adapters/work-surfaces/feishu/`
+  - Feishu Base work-surface adapter utilities and navigation playbook
+- `implementation/adapters/openclaw/plugin/`
+  - OpenClaw plugin commands, hooks, protocol parsing, validation scripts, and tests
+- `implementation/adapters/openclaw/runtime/`
+  - OpenClaw runtime delivery bridge
+- `implementation/tests/`
+  - runtime-neutral and OpenClaw integration tests, plus public-safe fixtures
 - `plan/`
-  - 当前仍在推进中的策略 / 设计 / validation 问题
+  - active design contracts and candidate planning docs
+- `docs/`
+  - documentation map, router guide, repo governance, and archive entrypoints
 - `execution/`
-  - 协作对象、handoff、review / decision 流转面
-- `implementation/`
-  - 代码、测试、实现说明、执行侧产物
-- `docs/archive/`
-  - 历史材料与已降级文档
+  - collaboration and handoff notes
 
-## Upstream context
-本项目承接以下上游研究：
-- `../../exploration/assistant-routing-research/research/research-summary.md`
-- `../../exploration/assistant-routing-research/research/implementation-brief.md`
-- `../../exploration/assistant-routing-research/research/implementation-constraints.md`
+## Key Concepts
+
+### Main Session
+
+The human-facing assistant surface remains the default place for conversation,
+focus switching, review, and final decisions. ACR does not silently move the human
+between project sessions.
+
+### Project Session Shadow Lane
+
+Project lanes are a trace and read model for routed events. They are useful for
+summaries, inspection, and fallback delivery, but they are not the authoritative
+runtime session.
+
+### Structured Automation Ingress
+
+Automation enters OpenClaw as a normal message, then the plugin recognizes the ACR
+wrapper and parses the JSON payload into a normalized envelope. Missing project
+resolution, unsupported routes, malformed protocol bodies, or unavailable service
+bridges safe-fail with traceable results.
+
+### Service Bridge
+
+Project-level `router.yaml` can bind service routes to a runtime-specific bridge.
+In this repo's self-hosted configuration, the bridge reads Feishu Task/Bug rows,
+assembles semantic execution context, and queues a trusted system event into the
+main session.
+
+### Boundary Capture
+
+When an agent completes routed work, it must emit a strict `[ACR_AUTOMATION]`
+boundary block. ACR validates the boundary before applying side effects, so a prose
+claim like "I updated the card" is not treated as an external mutation.
+
+## Commands And Validation
+
+The main test host is the OpenClaw plugin package:
+
+```bash
+cd implementation/adapters/openclaw/plugin
+npm test
+```
+
+Useful validation scripts in that package include:
+
+```bash
+npm run validate:demo-acr
+npm run validate:openclaw-cli
+```
+
+`validate:demo-acr` uses repo-local public-safe fixtures under
+`implementation/tests/fixtures/demo-acr/`. If you need to validate against a real
+external demo project root, set `ACR_DEMO_PROJECT_ROOT` explicitly.
+
+## Runtime Configuration
+
+ACR supports a layered config model:
+
+- project-level router manifest: `router.yaml`
+- optional global router config: plugin `routerConfigPath`
+- Feishu adapter config: `ACR_FEISHU_CONFIG_PATH` or plugin data-dir default
+- runtime bindings: `ACR_RUNTIME_BINDINGS_PATH` or plugin data-dir default
+- direct env override for Feishu Base access: `FEISHU_BASE_TOKEN`
+
+See `docs/router-config-guide.md` for the router manifest model and runtime binding
+details.
+
+## Reading Order
+
+For reviewers:
+
+1. `README.md`
+2. `docs/README.md`
+3. `implementation/README.md`
+4. `docs/router-config-guide.md`
+5. `implementation/adapters/openclaw/plugin`
+
+For current project status:
+
+1. `STATUS.md`
+2. `RESUME.md`
+3. `execution/COLLAB.md`
+4. `plan/active/step2-strategy-note.md`
+
+For Feishu / work-surface contracts:
+
+1. `plan/active/feishu-sync-architecture-note.md`
+2. `plan/active/feishu-adapter-config-host-contract.md`
+3. `plan/active/feishu-action-ingress-contract.md`
+4. `plan/active/feishu-task-bug-ownership-acceptance-contract.md`
+5. `plan/active/feishu-work-surface-operating-model.md`
+
+## Review Notes
+
+This repo deliberately keeps many contracts small and explicit. The useful review
+questions are:
+
+- Does routing fail closed when project resolution or config is missing?
+- Are external mutations backed by structured side-effect operations rather than
+  prose claims?
+- Does context assembly stay compact enough for real main-session execution?
+- Are project-specific assumptions kept out of runtime-neutral core modules?
+- Are local credentials and machine paths kept out of tracked files and history?
+
+## Upstream Research Context
+
+The project started from earlier assistant-routing research under the broader project owner
+workspace. That research is useful historical context, but this repo's current truth
+is the implementation, active plan docs, and validation fixtures in this repository.
